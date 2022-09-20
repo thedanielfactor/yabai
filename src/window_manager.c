@@ -2275,10 +2275,12 @@ void window_manager_toggle_window_parent(struct space_manager *sm, struct window
         } else {
             view->is_dirty = true;
         }
-    } else {
+    } else if (node->parent) {
+        node->parent->left->zoom = NULL;
+        node->parent->right->zoom = NULL;
         node->zoom = node->parent;
         if (space_is_visible(view->sid)) {
-            window_node_flush(node);
+            window_node_flush(node->parent);
         } else {
             view->is_dirty = true;
         }
