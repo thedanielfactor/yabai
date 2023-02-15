@@ -7,6 +7,26 @@ struct space_label
     char *label;
 };
 
+enum space_autopad_value_type
+{
+    SPACE_AUTOPAD_VALUE_FIXED_INT,
+    SPACE_AUTOPAD_VALUE_PERCENTAGE,
+};
+
+struct space_autopad
+{
+    bool enabled;
+
+    char pretty_aspect_ratio[7]; // NNN + : + MMM OR X.XXXXX
+    float min_aspect;
+
+    enum space_autopad_value_type height_type;
+    int height;
+
+    enum space_autopad_value_type width_type;
+    int width;
+};
+
 struct space_manager
 {
     struct table view;
@@ -24,6 +44,9 @@ struct space_manager
     enum window_node_child window_placement;
     bool window_zoom_persist;
     bool auto_balance;
+
+    struct space_autopad _autopad;
+    struct space_autopad* autopad;
     struct space_label *labels;
 };
 
@@ -101,5 +124,14 @@ void space_manager_mark_spaces_invalid(struct space_manager *sm);
 bool space_manager_refresh_application_windows(struct space_manager *sm);
 void space_manager_handle_display_add(struct space_manager *sm, uint32_t did);
 void space_manager_begin(struct space_manager *sm);
+
+void space_manager_set_autopad(struct space_manager* sm, bool enabled);
+void space_manager_set_autopad_width(struct space_manager* sm, enum space_autopad_value_type new_type, int new_width);
+void space_manager_set_autopad_height(struct space_manager* sm, enum space_autopad_value_type new_type, int new_height);
+void space_manager_set_autopad_min_aspect(struct space_manager* sm, float aspect_numerator, int aspect_denominator);
+bool space_manager_reset_view_paddings(struct space_manager* sm, struct view* view);
+int space_manager_autopad_height(struct space_manager* sm, CGSize* view_size);
+int space_manager_autopad_width(struct space_manager* sm, CGSize* view_size);
+bool space_manager_autopad_view(struct space_manager* sm, struct view* view, uint32_t window_count, bool update);
 
 #endif

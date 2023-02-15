@@ -147,6 +147,17 @@ static EVENT_HANDLER(APPLICATION_LAUNCHED)
     int view_count = 0;
     struct view **view_list = ts_alloc_list(struct view *, window_count);
 
+    if (window_count == 1) {
+        struct window *window = window_list[0];
+        if (window_manager_should_manage_window(window) && !window_manager_find_managed_window(&g_window_manager, window)) {
+            if (default_origin) sid = window_space(window->id);
+            struct view* view = space_manager_tile_window_on_space_with_insertion_point(&g_space_manager, window, sid, prev_window_id);
+            window_manager_add_managed_window(&g_window_manager, window, view);
+        }
+        event_signal_push(SIGNAL_WINDOW_CREATED, window);
+        return;
+    }
+
     for (int i = 0; i < window_count; ++i) {
         struct window *window = window_list[i];
 
@@ -284,8 +295,7 @@ static EVENT_HANDLER(APPLICATION_TERMINATED)
         if (!space_is_visible(view->sid)) continue;
         if (!view_is_dirty(view))         continue;
 
-        window_node_flush(view->root);
-        view->is_dirty = false;
+        space_manager_refresh_view(&g_space_manager, view->sid);
     }
 
 out:

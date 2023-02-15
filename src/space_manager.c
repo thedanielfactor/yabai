@@ -115,7 +115,17 @@ void space_manager_refresh_view(struct space_manager *sm, uint64_t sid)
     struct view *view = space_manager_find_view(sm, sid);
     if (view->layout == VIEW_FLOAT) return;
 
-    view_update(view);
+    uint32_t window_count = view_window_count(view);
+    if (!space_manager_autopad_view(sm, view, window_count, true)) {
+      view->left_padding = sm->left_padding;
+      view->right_padding = sm->right_padding;
+      view->top_padding = sm->top_padding;
+      view->bottom_padding = sm->bottom_padding;
+
+      sm->split_type = SPLIT_AUTO;
+      sm->auto_balance = false;
+      view_update(view);
+    }
     view_flush(view);
 }
 
@@ -124,7 +134,40 @@ void space_manager_mark_view_invalid(struct space_manager *sm,  uint64_t sid)
     struct view *view = space_manager_find_view(sm, sid);
     if (view->layout == VIEW_FLOAT) return;
 
+    uint32_t window_count = view_window_count(view);
+    if (!space_manager_autopad_view(sm, view, window_count, false)) {
+      view->left_padding = sm->left_padding;
+      view->right_padding = sm->right_padding;
+      view->top_padding = sm->top_padding;
+      view->bottom_padding = sm->bottom_padding;
+
+      sm->split_type = SPLIT_AUTO;
+      sm->auto_balance = false;
+    }
+
     view->is_valid = false;
+}
+
+bool space_manager_auto_pad_untile_window(struct space_manager* sm, struct view* view, struct window* window) {
+    uint32_t window_count = view_window_count(view);
+
+    if (space_manager_autopad_view(sm, view, window_count - 1, true)) {
+      struct window_node *node = view_remove_window_node(view, window);
+      if (!node) {
+        sm->auto_balance = false;
+        space_manager_reset_view_paddings(sm, view);
+        return true;
+      }
+      if (space_is_visible(view->sid)) {
+          window_node_flush(node);
+      } else {
+          view->is_dirty = true;
+      }
+      return true;
+    }
+
+    sm->auto_balance = false;
+    return false;
 }
 
 void space_manager_untile_window(struct space_manager *sm, struct view *view, struct window *window)
@@ -132,6 +175,14 @@ void space_manager_untile_window(struct space_manager *sm, struct view *view, st
     if (view->layout == VIEW_FLOAT) return;
 
     window_manager_adjust_layer(window, LAYER_NORMAL);
+    if (sm->autopad->enabled) {
+      uint32_t did = space_display_id(view->sid);
+      CGRect frame = CGDisplayBounds(did);
+      if (frame.size.width / frame.size.height > sm->autopad->min_aspect
+          && frame.size.height > space_manager_autopad_height(sm, &frame.size)
+          && space_manager_auto_pad_untile_window(sm, view, window)) return;
+    }
+
     struct window_node *node = view_remove_window_node(view, window);
     if (!node) return;
 
@@ -400,12 +451,176 @@ bool space_manager_balance_space(struct space_manager *sm, uint64_t sid, uint32_
     return true;
 }
 
+struct view* space_manager_auto_pad_view_insertion(struct space_manager* sm, struct view* view, struct window* window, uint32_t insertion_point) {
+    uint32_t window_count = view_window_count(view);
+
+    if (space_manager_autopad_view(sm, view, window_count + 1, true)) {
+      struct window_node *node = view_add_window_node_with_insertion_point(view, window, insertion_point);
+      if (space_is_visible(view->sid)) {
+          window_node_flush(node);
+      } else {
+          view->is_dirty = true;
+      }
+      return view;
+    } else if (space_manager_reset_view_paddings(sm, view)) {
+        sm->split_type = (window_count == 1) ? SPLIT_Y : SPLIT_X;
+        sm->auto_balance = true;
+        struct window_node *node = view_add_window_node_with_insertion_point(view, window, insertion_point);
+        if (space_is_visible(view->sid)) {
+            window_node_flush(node);
+        } else {
+            view->is_dirty = true;
+        }
+        sm->auto_balance = false;
+        sm->split_type = SPLIT_AUTO;
+        return view;
+    }
+
+    sm->auto_balance = false;
+    sm->split_type = SPLIT_AUTO;
+
+    return NULL;
+}
+
+void space_manager_set_autopad(struct space_manager* sm, bool enabled) {
+  if (sm->autopad->enabled == enabled) {
+    return;
+  }
+
+  sm->autopad->enabled = enabled;
+  space_manager_mark_spaces_invalid(sm);
+}
+
+void space_manager_set_autopad_width(struct space_manager* sm, enum space_autopad_value_type new_type, int new_width) {
+  enum space_autopad_value_type old_type = sm->autopad->width_type;
+  int old_width = sm->autopad->width;
+
+  sm->autopad->width_type = new_type;
+  sm->autopad->width = new_width;
+
+  if (sm->autopad->enabled && ( old_type != new_type || old_width != new_width )) {
+    space_manager_mark_spaces_invalid(sm);
+  }
+}
+
+void space_manager_set_autopad_height(struct space_manager* sm, enum space_autopad_value_type new_type, int new_height) {
+  enum space_autopad_value_type old_type = sm->autopad->height_type;
+  int old_height = sm->autopad->height;
+
+  sm->autopad->height_type = new_type;
+  sm->autopad->height = new_height;
+
+  if (sm->autopad->enabled && (old_type != new_type || old_height != new_height)) {
+    space_manager_mark_spaces_invalid(sm);
+  }
+}
+
+void space_manager_set_autopad_min_aspect(struct space_manager* sm, float aspect_numerator, int aspect_denominator) {
+  float old_aspect = sm->autopad->min_aspect;
+  if (aspect_denominator > 1) {
+    sprintf(sm->autopad->pretty_aspect_ratio, "%d:%d", (int)aspect_numerator, aspect_denominator);
+    sm->autopad->min_aspect = (aspect_numerator - 1.f) / (float)aspect_denominator;
+  } else {
+    sprintf(sm->autopad->pretty_aspect_ratio, "%.4f", aspect_numerator);
+    sm->autopad->min_aspect = aspect_numerator;
+  }
+
+  if (sm->autopad->enabled && old_aspect != sm->autopad->min_aspect) {
+    space_manager_mark_spaces_invalid(sm);
+  }
+}
+
+int space_manager_autopad_height(struct space_manager* sm, CGSize* view_size) {
+  if (sm->autopad->height_type == SPACE_AUTOPAD_VALUE_FIXED_INT) {
+    return sm->autopad->height;
+  } else {
+    // XXX: may be worth the complexity to memoize this per did per EVENT_HANDLER(DISPLAY_RESIZED)
+    return (sm->autopad->height * view_size->height) / 100;
+  }
+}
+
+int space_manager_autopad_width(struct space_manager* sm, CGSize* view_size) {
+  if (sm->autopad->width_type == SPACE_AUTOPAD_VALUE_FIXED_INT) {
+    return sm->autopad->width;
+  } else {
+    // XXX: may be worth the complexity to memoize this per did per EVENT_HANDLER(DISPLAY_RESIZED)
+    return (sm->autopad->width * view_size->width) / 100;
+  }
+}
+
+bool space_manager_autopad_view(struct space_manager* sm, struct view* view, uint32_t window_count, bool update) {
+  if (sm->autopad->enabled) {
+    uint32_t did = space_display_id(view->sid);
+    CGRect frame = CGDisplayBounds(did);
+
+    int target_height = space_manager_autopad_height(sm, &frame.size);
+    int target_width = space_manager_autopad_width(sm, &frame.size);
+
+    if (frame.size.width / frame.size.height >= sm->autopad->min_aspect
+        && frame.size.height > target_height) {
+      uint32_t fit = frame.size.width / target_width;
+
+      if (window_count <= fit) {
+        if (window_count == 1 && fit >= 2) {
+          uint32_t gaps = 0;
+          view->left_padding = (frame.size.width - gaps - (window_count + 1) * target_width) / 2;
+          view->right_padding = (frame.size.width - gaps - (window_count + 1) * target_width) / 2;
+        } else {
+          uint32_t gaps = window_count > 1 ? (window_count - 1) * view->window_gap : 0;
+          view->left_padding = (frame.size.width - gaps - (window_count) * target_width) / 2;
+          view->right_padding = (frame.size.width - gaps - (window_count) * target_width) / 2;
+        }
+
+        if (frame.size.height > target_height) {
+          view->top_padding = (frame.size.height - target_height) / 2;
+          view->bottom_padding = (frame.size.height - target_height) / 2;
+        } else {
+          view->top_padding = sm->top_padding;
+          view->bottom_padding = sm->bottom_padding;
+        }
+
+        sm->split_type = SPLIT_Y;
+        sm->auto_balance = true;
+        if (update) view_update(view);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool space_manager_reset_view_paddings(struct space_manager* sm, struct view* view) {
+  if (view->left_padding != sm->left_padding
+      || view->right_padding != sm->right_padding
+      || view->top_padding != sm->top_padding
+      || view->bottom_padding != sm->bottom_padding) {
+    view->left_padding = sm->left_padding;
+    view->right_padding = sm->right_padding;
+    view->top_padding = sm->top_padding;
+    view->bottom_padding = sm->bottom_padding;
+    sm->auto_balance = false;
+    view_update(view);
+    return true;
+  }
+  return false;
+}
+
 struct view *space_manager_tile_window_on_space_with_insertion_point(struct space_manager *sm, struct window *window, uint64_t sid, uint32_t insertion_point)
 {
     struct view *view = space_manager_find_view(sm, sid);
     if (view->layout == VIEW_FLOAT) return view;
 
     window_manager_adjust_layer(window, LAYER_BELOW);
+    if (sm->autopad->enabled) {
+      uint32_t did = space_display_id(view->sid);
+      CGRect frame = CGDisplayBounds(did);
+      if (frame.size.width / frame.size.height >= sm->autopad->min_aspect
+          && frame.size.height > space_manager_autopad_height(sm, &frame.size)) {
+        struct view* auto_padded_view = space_manager_auto_pad_view_insertion(sm, view, window, insertion_point);
+        if (auto_padded_view) return auto_padded_view;
+      }
+    }
+
     struct window_node *node = view_add_window_node_with_insertion_point(view, window, insertion_point);
     assert(node);
 
@@ -1068,6 +1283,15 @@ void space_manager_handle_display_add(struct space_manager *sm, uint32_t did)
 void space_manager_begin(struct space_manager *sm)
 {
     sm->layout = VIEW_FLOAT;
+
+    // this is just to avoid awkward sm->autopad.x access everywhere :/
+    sm->autopad = &sm->_autopad;
+    sm->autopad->enabled = false;
+    space_manager_set_autopad_min_aspect(sm, 20., 9);
+    sm->autopad->width_type = SPACE_AUTOPAD_VALUE_FIXED_INT;
+    sm->autopad->width = 840;
+    sm->autopad->height = 1200;
+
     sm->split_ratio = 0.5f;
     sm->auto_balance = false;
     sm->split_type = SPLIT_AUTO;
