@@ -4,18 +4,20 @@ extern int g_connection;
 static DISPLAY_EVENT_HANDLER(display_handler)
 {
     if (flags & kCGDisplayAddFlag) {
-        event_loop_post(&g_event_loop, DISPLAY_ADDED, (void *)(intptr_t) did, 0, NULL);
+        event_loop_post(&g_event_loop, DISPLAY_ADDED, (void *)(intptr_t) did, 0);
     } else if (flags & kCGDisplayRemoveFlag) {
-        event_loop_post(&g_event_loop, DISPLAY_REMOVED, (void *)(intptr_t) did, 0, NULL);
+        event_loop_post(&g_event_loop, DISPLAY_REMOVED, (void *)(intptr_t) did, 0);
     } else if (flags & kCGDisplayMovedFlag) {
-        event_loop_post(&g_event_loop, DISPLAY_MOVED, (void *)(intptr_t) did, 0, NULL);
+        event_loop_post(&g_event_loop, DISPLAY_MOVED, (void *)(intptr_t) did, 0);
     } else if (flags & kCGDisplayDesktopShapeChangedFlag) {
-        event_loop_post(&g_event_loop, DISPLAY_RESIZED, (void *)(intptr_t) did, 0, NULL);
+        event_loop_post(&g_event_loop, DISPLAY_RESIZED, (void *)(intptr_t) did, 0);
     }
 }
 
 void display_serialize(FILE *rsp, uint32_t did)
 {
+    TIME_FUNCTION;
+
     CGRect frame = CGDisplayBounds(did);
 
     char *uuid = NULL;
@@ -47,19 +49,25 @@ void display_serialize(FILE *rsp, uint32_t did)
         }
     }
 
+    struct display_label *display_label = display_manager_get_label_for_display(&g_display_manager, did);
+
     fprintf(rsp,
             "{\n"
             "\t\"id\":%d,\n"
             "\t\"uuid\":\"%s\",\n"
             "\t\"index\":%d,\n"
+            "\t\"label\":\"%s\",\n"
             "\t\"frame\":{\n\t\t\"x\":%.4f,\n\t\t\"y\":%.4f,\n\t\t\"w\":%.4f,\n\t\t\"h\":%.4f\n\t},\n"
-            "\t\"spaces\":[%s]\n"
+            "\t\"spaces\":[%s],\n"
+            "\t\"has-focus\":%s\n"
             "}",
             did,
             uuid ? uuid : "<unknown>",
-            display_arrangement(did),
+            display_manager_display_id_arrangement(did),
+            display_label ? display_label->label : "",
             frame.origin.x, frame.origin.y, frame.size.width, frame.size.height,
-            buffer);
+            buffer,
+            json_bool(did == g_display_manager.current_display_id));
 }
 
 CFStringRef display_uuid(uint32_t did)
@@ -86,7 +94,7 @@ uint32_t display_id(CFStringRef uuid)
 
 CGRect display_bounds_constrained(uint32_t did)
 {
-    CGRect frame  = CGDisplayBounds(did);
+    CGRect frame = CGDisplayBounds(did);
     int effective_ext_top_padding = 0;
 
     if ((g_display_manager.mode == EXTERNAL_BAR_MAIN &&
@@ -196,7 +204,7 @@ uint64_t *display_space_list(uint32_t did, int *count)
         CFArrayRef spaces_ref = CFDictionaryGetValue(display_ref, CFSTR("Spaces"));
         int spaces_count = CFArrayGetCount(spaces_ref);
 
-        space_list = ts_alloc_aligned(sizeof(uint64_t), spaces_count);
+        space_list = ts_alloc_list(uint64_t, spaces_count);
         *count = spaces_count;
 
         for (int j = 0; j < spaces_count; ++j) {
@@ -211,29 +219,4 @@ err:
     CFRelease(uuid);
 out:
     return space_list;
-}
-
-int display_arrangement(uint32_t did)
-{
-    int result = 0;
-
-    CFStringRef uuid = display_uuid(did);
-    if (!uuid) goto out;
-
-    CFArrayRef displays = SLSCopyManagedDisplays(g_connection);
-    if (!displays) goto err;
-
-    int displays_count = CFArrayGetCount(displays);
-    for (int i = 0; i < displays_count; ++i) {
-        if (CFEqual(CFArrayGetValueAtIndex(displays, i), uuid)) {
-            result = i + 1;
-            break;
-        }
-    }
-
-    CFRelease(displays);
-err:
-    CFRelease(uuid);
-out:
-    return result;
 }

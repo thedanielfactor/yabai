@@ -62,6 +62,8 @@ struct mouse_state
     CFMachPortRef handle;
     CFRunLoopSourceRef runloop_source;
     bool consume_mouse_click;
+    bool drag_detected;
+    CGEventRef consumed_event;
     enum mouse_mode action1;
     enum mouse_mode action2;
     volatile uint8_t modifier;
@@ -72,6 +74,8 @@ struct mouse_state
     struct window *window;
     CGRect window_frame;
     uint32_t ffm_window_id;
+    uint8_t direction;
+    struct window_node *feedback_node;
 };
 
 static char *mouse_mod_str[] =

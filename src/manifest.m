@@ -1,9 +1,19 @@
 #include <Carbon/Carbon.h>
 #include <Cocoa/Cocoa.h>
-#include <objc/objc-runtime.h>
+#include <CoreVideo/CoreVideo.h>
 #include <mach/mach_time.h>
+#include <mach-o/dyld.h>
+#include <mach-o/swap.h>
+#include <bootstrap.h>
+
+#ifdef __x86_64__
+#include <emmintrin.h>
+#elif __arm64__
+#include <arm_neon.h>
+#endif
 
 #include <stdio.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -29,6 +39,7 @@
 #include <pthread.h>
 #include <pwd.h>
 #include <spawn.h>
+#include <libproc.h>
 
 #include "misc/extern.h"
 #include "misc/macros.h"
@@ -38,6 +49,8 @@
 #include "misc/notify.h"
 #include "misc/log.h"
 #include "misc/helpers.h"
+#include "misc/timer.h"
+#include "misc/macho_dlsym.h"
 #include "misc/sbuffer.h"
 #define HASHTABLE_IMPLEMENTATION
 #include "misc/hashtable.h"
@@ -46,6 +59,7 @@
 
 #include "osax/common.h"
 
+#include "view.h"
 #include "sa.h"
 #include "event_loop.h"
 #include "event_signal.h"
@@ -54,8 +68,6 @@
 #include "message.h"
 #include "display.h"
 #include "space.h"
-#include "view.h"
-#include "border.h"
 #include "window.h"
 #include "process_manager.h"
 #include "application.h"
@@ -74,7 +86,6 @@
 #include "display.c"
 #include "space.c"
 #include "view.c"
-#include "border.c"
 #include "window.c"
 #include "process_manager.c"
 #include "application.c"

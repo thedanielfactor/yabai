@@ -7,6 +7,26 @@ struct space_label
     char *label;
 };
 
+enum space_autopad_value_type
+{
+    SPACE_AUTOPAD_VALUE_FIXED_INT,
+    SPACE_AUTOPAD_VALUE_PERCENTAGE,
+};
+
+struct space_autopad
+{
+    bool enabled;
+
+    char pretty_aspect_ratio[7]; // NNN + : + MMM OR X.XXXXX
+    float min_aspect;
+
+    enum space_autopad_value_type height_type;
+    int height;
+
+    enum space_autopad_value_type width_type;
+    int width;
+};
+
 struct space_manager
 {
     struct table view;
@@ -24,6 +44,9 @@ struct space_manager
     enum window_node_child window_placement;
     bool window_zoom_persist;
     bool auto_balance;
+
+    struct space_autopad _autopad;
+    struct space_autopad* autopad;
     struct space_label *labels;
 };
 
@@ -54,6 +77,7 @@ void space_manager_mark_view_dirty(struct space_manager *sm,  uint64_t sid);
 void space_manager_untile_window(struct space_manager *sm, struct view *view, struct window *window);
 struct view *space_manager_tile_window_on_space_with_insertion_point(struct space_manager *sm, struct window *window, uint64_t sid, uint32_t insertion_point);
 struct view *space_manager_tile_window_on_space(struct space_manager *sm, struct window *window, uint64_t sid);
+bool space_manager_equalize_space(struct space_manager *sm, uint64_t sid, uint32_t axis_flag);
 bool space_manager_balance_space(struct space_manager *sm, uint64_t sid, uint32_t axis_flag);
 void space_manager_toggle_window_split(struct space_manager *sm, struct window *window);
 int space_manager_mission_control_index(uint64_t sid);
@@ -85,6 +109,7 @@ bool space_manager_rotate_space(struct space_manager *sm, uint64_t sid, int degr
 bool space_manager_mirror_space(struct space_manager *sm, uint64_t sid, enum window_node_split axis);
 void space_manager_move_window_to_space(uint64_t sid, struct window *window);
 enum space_op_error space_manager_focus_space(uint64_t sid);
+enum space_op_error space_manager_switch_space(uint64_t sid);
 enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uint64_t selector_sid);
 enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint64_t selector_sid);
 enum space_op_error space_manager_move_space_to_display(struct space_manager *sm, uint64_t sid, uint32_t did);
@@ -99,5 +124,14 @@ void space_manager_mark_spaces_invalid(struct space_manager *sm);
 bool space_manager_refresh_application_windows(struct space_manager *sm);
 void space_manager_handle_display_add(struct space_manager *sm, uint32_t did);
 void space_manager_begin(struct space_manager *sm);
+
+void space_manager_set_autopad(struct space_manager* sm, bool enabled);
+void space_manager_set_autopad_width(struct space_manager* sm, enum space_autopad_value_type new_type, int new_width);
+void space_manager_set_autopad_height(struct space_manager* sm, enum space_autopad_value_type new_type, int new_height);
+void space_manager_set_autopad_min_aspect(struct space_manager* sm, float aspect_numerator, int aspect_denominator);
+bool space_manager_reset_view_paddings(struct space_manager* sm, struct view* view);
+int space_manager_autopad_height(struct space_manager* sm, CGSize* view_size);
+int space_manager_autopad_width(struct space_manager* sm, CGSize* view_size);
+bool space_manager_autopad_view(struct space_manager* sm, struct view* view, uint32_t window_count, bool update);
 
 #endif

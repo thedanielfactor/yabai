@@ -4,6 +4,8 @@ extern int g_connection;
 
 bool display_manager_query_displays(FILE *rsp)
 {
+    TIME_FUNCTION;
+
     int count;
     uint32_t *display_list = display_manager_active_display_list(&count);
     if (!display_list) return false;
@@ -16,6 +18,63 @@ bool display_manager_query_displays(FILE *rsp)
     fprintf(rsp, "\n");
 
     return true;
+}
+
+struct display_label *display_manager_get_label_for_display(struct display_manager *dm, uint32_t did)
+{
+    for (int i = 0; i < buf_len(dm->labels); ++i) {
+        struct display_label *display_label = &dm->labels[i];
+        if (display_label->did == did) {
+            return display_label;
+        }
+    }
+
+    return NULL;
+}
+
+struct display_label *display_manager_get_display_for_label(struct display_manager *dm, char *label)
+{
+    for (int i = 0; i < buf_len(dm->labels); ++i) {
+        struct display_label *display_label = &dm->labels[i];
+        if (string_equals(label, display_label->label)) {
+            return display_label;
+        }
+    }
+
+    return NULL;
+}
+
+bool display_manager_remove_label_for_display(struct display_manager *dm, uint32_t did)
+{
+    for (int i = 0; i < buf_len(dm->labels); ++i) {
+        struct display_label *display_label = &dm->labels[i];
+        if (display_label->did == did) {
+            free(display_label->label);
+            buf_del(dm->labels, i);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void display_manager_set_label_for_display(struct display_manager *dm, uint32_t did, char *label)
+{
+    display_manager_remove_label_for_display(dm, did);
+
+    for (int i = 0; i < buf_len(dm->labels); ++i) {
+        struct display_label *display_label = &dm->labels[i];
+        if (string_equals(display_label->label, label)) {
+            free(display_label->label);
+            buf_del(dm->labels, i);
+            break;
+        }
+    }
+
+    buf_push(dm->labels, ((struct display_label) {
+        .did   = did,
+        .label = label
+    }));
 }
 
 CFStringRef display_manager_main_display_uuid(void)
@@ -78,6 +137,65 @@ uint32_t display_manager_point_display_id(CGPoint point)
     return result;
 }
 
+static CFComparisonResult display_manager_coordinate_comparator(CFTypeRef a, CFTypeRef b, void *context)
+{
+    enum display_arrangement_order axis = (enum display_arrangement_order)(uintptr_t) context;
+
+    uint32_t a_did = display_id(a);
+    uint32_t b_did = display_id(b);
+
+    CGPoint a_center = display_center(a_did);
+    CGPoint b_center = display_center(b_did);
+
+    float a_coord = axis == DISPLAY_ARRANGEMENT_ORDER_Y ? a_center.y : a_center.x;
+    float b_coord = axis == DISPLAY_ARRANGEMENT_ORDER_Y ? b_center.y : b_center.x;
+
+    if (a_coord < b_coord) return kCFCompareLessThan;
+    if (a_coord > b_coord) return kCFCompareGreaterThan;
+
+    a_coord = axis == DISPLAY_ARRANGEMENT_ORDER_Y ? a_center.x : a_center.y;
+    b_coord = axis == DISPLAY_ARRANGEMENT_ORDER_Y ? b_center.x : b_center.y;
+
+    if (a_coord < b_coord) return kCFCompareLessThan;
+    if (a_coord > b_coord) return kCFCompareGreaterThan;
+
+    return kCFCompareEqualTo;
+}
+
+int display_manager_display_id_arrangement(uint32_t did)
+{
+    int result = 0;
+
+    CFStringRef uuid = display_uuid(did);
+    if (!uuid) goto out;
+
+    CFArrayRef displays = SLSCopyManagedDisplays(g_connection);
+    if (!displays) goto err;
+
+    int count = CFArrayGetCount(displays);
+    if (!count) goto empty;
+
+    if (g_display_manager.order != DISPLAY_ARRANGEMENT_ORDER_DEFAULT) {
+        CFMutableArrayRef mut_displays = CFArrayCreateMutableCopy(NULL, count, displays);
+        CFArraySortValues(mut_displays, CFRangeMake(0, count), &display_manager_coordinate_comparator, (void *)(uintptr_t) g_display_manager.order);
+        CFRelease(displays); displays = mut_displays;
+    }
+
+    for (int i = 0; i < count; ++i) {
+        if (CFEqual(CFArrayGetValueAtIndex(displays, i), uuid)) {
+            result = i + 1;
+            break;
+        }
+    }
+
+empty:
+    CFRelease(displays);
+err:
+    CFRelease(uuid);
+out:
+    return result;
+}
+
 CFStringRef display_manager_arrangement_display_uuid(int arrangement)
 {
     CFStringRef result = NULL;
@@ -87,6 +205,12 @@ CFStringRef display_manager_arrangement_display_uuid(int arrangement)
     int index = arrangement - 1;
 
     if (in_range_ie(index, 0, count)) {
+        if (g_display_manager.order != DISPLAY_ARRANGEMENT_ORDER_DEFAULT) {
+            CFMutableArrayRef mut_displays = CFArrayCreateMutableCopy(NULL, count, displays);
+            CFArraySortValues(mut_displays, CFRangeMake(0, count), &display_manager_coordinate_comparator, (void *)(uintptr_t) g_display_manager.order);
+            CFRelease(displays); displays = mut_displays;
+        }
+
         result = CFRetain(CFArrayGetValueAtIndex(displays, index));
     }
 
@@ -96,17 +220,12 @@ CFStringRef display_manager_arrangement_display_uuid(int arrangement)
 
 uint32_t display_manager_arrangement_display_id(int arrangement)
 {
-    uint32_t result = 0;
-    CFArrayRef displays = SLSCopyManagedDisplays(g_connection);
+    CFStringRef uuid = display_manager_arrangement_display_uuid(arrangement);
+    if (!uuid) return 0;
 
-    int count = CFArrayGetCount(displays);
-    int index = arrangement - 1;
+    uint32_t result = display_id(uuid);
+    CFRelease(uuid);
 
-    if (in_range_ie(index, 0, count)) {
-        result = display_id(CFArrayGetValueAtIndex(displays, index));
-    }
-
-    CFRelease(displays);
     return result;
 }
 
@@ -119,7 +238,7 @@ uint32_t display_manager_cursor_display_id(void)
 
 uint32_t display_manager_prev_display_id(uint32_t did)
 {
-    int arrangement = display_arrangement(did);
+    int arrangement = display_manager_display_id_arrangement(did);
     if (arrangement <= 1) return 0;
 
     return display_manager_arrangement_display_id(arrangement - 1);
@@ -127,7 +246,7 @@ uint32_t display_manager_prev_display_id(uint32_t did)
 
 uint32_t display_manager_next_display_id(uint32_t did)
 {
-    int arrangement = display_arrangement(did);
+    int arrangement = display_manager_display_id_arrangement(did);
     if (arrangement >= display_manager_active_display_count()) return 0;
 
     return display_manager_arrangement_display_id(arrangement + 1);
@@ -191,22 +310,24 @@ CGRect display_manager_menu_bar_rect(uint32_t did)
 #elif __arm64__
 
     //
-    // NOTE(koekeishiya): SLSGetRevealedMenuBarBounds is broken on Apple Silicon and always returns an empty rectangle,
-    // The menubar height seems to be a constant of 24em always, regardless of the display being a 13" or 16",
-    // so we patch it here. For screens with a notch, the height of the notch determines the lowest y-coordinate
-    // that windows can be placed at. The width of the menubar should be equal to the width of the display.
+    // NOTE(koekeishiya): SLSGetRevealedMenuBarBounds is broken on Apple Silicon,
+    // but we expected it to return the full display bounds along with the menubar
+    // height. Combine this information ourselves using two separate functions..
     //
 
-    int notch_height = workspace_display_notch_height(did);
-    if (notch_height) {
-        bounds.size.height = notch_height + 6;
-    } else {
-        bounds.size.height = 24;
-    }
+    uint32_t height = 0;
+    SLSGetDisplayMenubarHeight(did, &height);
 
-    bounds.size.width = CGDisplayPixelsWide(did);
+    bounds = CGDisplayBounds(did);
+    bounds.size.height = height;
 #endif
 
+    //
+    // NOTE(koekeishiya): Height needs to be offset by 1 because that is the actual
+    // position on the screen that windows can be positioned at..
+    //
+
+    bounds.size.height += 1;
     return bounds;
 }
 
@@ -263,7 +384,7 @@ int display_manager_active_display_count(void)
 uint32_t *display_manager_active_display_list(int *count)
 {
     int display_count = display_manager_active_display_count();
-    uint32_t *result = ts_alloc_aligned(sizeof(uint32_t), display_count);
+    uint32_t *result = ts_alloc_list(uint32_t, display_count);
     CGGetActiveDisplayList(display_count, result, (uint32_t*)count);
     return result;
 }
@@ -291,7 +412,7 @@ static AXUIElementRef display_manager_find_element_at_point(CGPoint point)
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-void display_manager_focus_display_with_point(uint32_t did, CGPoint point, bool update_cursor_position)
+uint32_t display_manager_focus_display_with_point(uint32_t did, CGPoint point, bool update_cursor_position)
 {
     int element_connection;
     ProcessSerialNumber element_psn;
@@ -306,14 +427,15 @@ void display_manager_focus_display_with_point(uint32_t did, CGPoint point, bool 
     SLSGetConnectionPSN(element_connection, &element_psn);
     window_manager_focus_window_with_raise(&element_psn, element_id, element_ref);
     CFRelease(element_ref);
-    goto out;
+    return element_id;
 
 err_ref:
     CFRelease(element_ref);
 click:
     CGPostMouseEvent(point, update_cursor_position, 1, true);
     CGPostMouseEvent(point, update_cursor_position, 1, false);
-out:;
+
+    return 0;
 }
 #pragma clang diagnostic pop
 
@@ -327,10 +449,25 @@ void display_manager_focus_display(uint32_t did, uint64_t sid)
     }
 }
 
+enum space_op_error display_manager_focus_space(uint32_t did, uint64_t sid)
+{
+    bool is_in_mc = mission_control_is_active();
+    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
+
+    bool is_animating = display_manager_display_is_animating(did);
+    if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
+
+    uint32_t space_did = space_display_id(sid);
+    if (space_did != did) return SPACE_OP_ERROR_SAME_DISPLAY;
+
+    return scripting_addition_focus_space(sid) ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
+}
+
 bool display_manager_begin(struct display_manager *dm)
 {
     dm->current_display_id = display_manager_active_display_id();
     dm->last_display_id = dm->current_display_id;
+    dm->order = DISPLAY_ARRANGEMENT_ORDER_DEFAULT;
     dm->mode = EXTERNAL_BAR_OFF;
     dm->top_padding = 0;
     dm->bottom_padding = 0;

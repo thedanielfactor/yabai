@@ -6,6 +6,183 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [7.0.2] - 2024-03-13
+### Changed
+- Decouple/normalize timer used for mouse_action resize throttling because event timestep varies between macOS versions [#2160](https://github.com/koekeishiya/yabai/issues/2160)
+
+## [7.0.1] - 2024-03-13
+### Changed
+- Fix mouse_action resize throttling issue caused by friggin Apple event timestep garbage [#2160](https://github.com/koekeishiya/yabai/issues/2160)
+
+## [7.0.0] - 2024-03-13
+### Added
+- Make space visible on display without stealing focus (the space must belong to the display) [#2113](https://github.com/koekeishiya/yabai/issues/2113)
+- Restore application_activated and application_deactivated signals [#2122](https://github.com/koekeishiya/yabai/issues/2122)
+- Restore system_woke signal [#2124](https://github.com/koekeishiya/yabai/issues/2124)
+- Added new window rules command `--apply` to apply the effects of (specific or all existing rules), or an ad-hoc rule that should only apply once, to all known windows [#2123](https://github.com/koekeishiya/yabai/issues/2123)
+- Added new argument `--one-shot` to window rules command `--add` to specify that this rule only runs once [#2123](https://github.com/koekeishiya/yabai/issues/2123)
+- Window rules marked as `--one-shot` will be ignored completely by the `--apply` command [#2123](https://github.com/koekeishiya/yabai/issues/2123)
+- Window queries include a new property `has-ax-reference` [#2126](https://github.com/koekeishiya/yabai/issues/2126)
+- Window command `--sub-layer` and rule property `sub-layer` has been added to replace `--layer` and `layer` respectively [#2128](https://github.com/koekeishiya/yabai/issues/2128)
+- Added new command `config window_animation_easing ..` to select easing function [#2131](https://github.com/koekeishiya/yabai/issues/2131)
+- Added new command `space --equalize .. ` to reset split ratios of all nodes within a space to default value [#2133](https://github.com/koekeishiya/yabai/issues/2133)
+- Added new command `space --switch ..` to focus a space (substitute with current focus) regardless of its display [#549](https://github.com/koekeishiya/yabai/issues/549)
+- Added new command `config display_arrangement_order ..` to change how yabai interprets arrangement indices used to select displays [#550](https://github.com/koekeishiya/yabai/issues/550)
+- Added new command `display --label ..` and display query property `label` (works like space labels) [#1616](https://github.com/koekeishiya/yabai/issues/1616)
+- Added display query property `has-focus` [#1616](https://github.com/koekeishiya/yabai/issues/1616)
+
+### Changed
+- Preserve relative space ordering when moving spaces to other displays [#2114](https://github.com/koekeishiya/yabai/issues/2114)
+- Make window animations compatible with window opacity fade effect [#2116](https://github.com/koekeishiya/yabai/issues/2116)
+- Better filter for background processes [#2118](https://github.com/koekeishiya/yabai/issues/2118)
+- Managed windows should snap back into place when moved incorrectly using the mouse [#1199](https://github.com/koekeishiya/yabai/issues/1199) [#2066](https://github.com/koekeishiya/yabai/issues/2066)
+- Managed windows should correct their frame when modified by external means [#2117](https://github.com/koekeishiya/yabai/issues/2117)
+- Window frame would sometimes not be set correctly when using window animations [#2120](https://github.com/koekeishiya/yabai/issues/2120)
+- Allow resetting window opacity in window rules [#2127](https://github.com/koekeishiya/yabai/issues/2127)
+- When adding new window rules, their effects will only apply to *windows that open after the rule has been added* [#2123](https://github.com/koekeishiya/yabai/issues/2123)
+- Window queries will now list information about all windows even if yabai does not yet have an AX-reference. Windows that are missing an AX-reference cannot be acted upon until its space has become active [#2126](https://github.com/koekeishiya/yabai/issues/2126)
+- Fixed window animation flickering [#2129](https://github.com/koekeishiya/yabai/issues/2129)
+- Fixed weird issue with memory ownership when synthesizing events for autofocus [#2130](https://github.com/koekeishiya/yabai/issues/2130)
+- Combine effects of all matching window rules before applying rule effects [#2123](https://github.com/koekeishiya/yabai/issues/2123)
+- Window insert feedback visual should use same layer as parent window [#2132](https://github.com/koekeishiya/yabai/issues/2132)
+- Updated scripting-addition mach loader/injection and payload to work for macOS Sonoma 14.4 [#2146](https://github.com/koekeishiya/yabai/issues/2146) [#2150](https://github.com/koekeishiya/yabai/issues/2150)
+- Some space and display signals (where possible) now pass additional env.vars. containing the user-facing index that can be used with yabai commands [#2152](https://github.com/koekeishiya/yabai/issues/2152)
+- Fixed some window commands that would incorrectly require a focused window to exist in order to operate on an arbitrary window through its id [#2153](https://github.com/koekeishiya/yabai/issues/2153)
+- Window grid command will now apply the configured space window gap [#932](https://github.com/koekeishiya/yabai/issues/932)
+- Config file no longer requires the exec-permission-bit to be set [#1993](https://github.com/koekeishiya/yabai/issues/1993)
+- Allow `space --swap ..` command to swap spaces between displays. This works by swapping all windows (and interior state) rather than macOS spaces [#549](https://github.com/koekeishiya/yabai/issues/549)
+- Focus-follows-mouse should now be a lot more responsive [#1958](https://github.com/koekeishiya/yabai/issues/1958)
+- Fixed issue causing Dock to not hide if the cursor is moved before animation finishes [#1552](https://github.com/koekeishiya/yabai/issues/1552)
+- Fixed issue causing Dock to not respect autohide-delay preference [#1951](https://github.com/koekeishiya/yabai/issues/1951)
+- Fixed issue where using alt as mouse_modifier would trigger macOS functionality that hides all windows [#2154](https://github.com/koekeishiya/yabai/issues/2154) [#1809](https://github.com/koekeishiya/yabai/issues/1809)
+- Fixed absurd issue where subscribing to mouse_events would cause delayed input in some cases when magic mouse is connected [#1877](https://github.com/koekeishiya/yabai/issues/1877)
+
+### Removed
+- When adding new window rules, their effects will only apply to *windows that open after the rule has been added*. To restore old behavior, run `yabai -m rule --apply` after adding all rules [#2123](https://github.com/koekeishiya/yabai/issues/2123)
+- Window command `--layer` and rule property `layer` has been renamed to `--sub-layer` and `sub-layer` respectively [#2128](https://github.com/koekeishiya/yabai/issues/2128)
+
+## [6.0.15] - 2024-02-22
+### Changed
+- Fix weird segfault with consumed mouse-event [#1801](https://github.com/koekeishiya/yabai/issues/1801)
+- Implement visual feedback for mouse_drag actions, controlled by `insert_feedback_color` [#2109](https://github.com/koekeishiya/yabai/issues/2109)
+
+## [6.0.14] - 2024-02-21
+### Changed
+- Mouse actions could stop working if the acting window was destroyed while a mouse action was in progress [#2038](https://github.com/koekeishiya/yabai/issues/2038)
+- Replicate consumed mouse-click when no mouse-drag action is initiated [#1801](https://github.com/koekeishiya/yabai/issues/1801)
+
+## [6.0.13] - 2024-02-19
+### Changed
+- Lock assigned handle while mouse_action resize is in progress [#2102](https://github.com/koekeishiya/yabai/issues/2102)
+- Modify "no click-zone" when using focus_follows_mouse to activate an empty display [#1892](https://github.com/koekeishiya/yabai/issues/1892) [#863](https://github.com/koekeishiya/yabai/issues/863)
+
+## [6.0.12] - 2024-02-12
+### Added
+- New config option `menubar_opacity` to make the menubar transparent (or even completely hidden, ignoring mouse-events) [#2091](https://github.com/koekeishiya/yabai/issues/2091)
+
+### Changed
+- Using `--toggle native-fullscreen` to exit native-fullscreen mode could sometimes leave the window unmanaged/untiled [#2090](https://github.com/koekeishiya/yabai/issues/2090)
+
+## [6.0.11] - 2024-02-11
+### Changed
+- Adjustments to mission control integration on Ventura and Sonoma due to subtle issues with window operations that cross monitor boundaries [#2088](https://github.com/koekeishiya/yabai/issues/2088)
+
+## [6.0.10] - 2024-02-10
+### Changed
+- Fixed caching issue when using focus_follows_mouse to switch focus between monitors with no windows [#2075](https://github.com/koekeishiya/yabai/issues/2075)
+- Attempt to resolve issue where some applications do not incorrectly pass along NSRunningApplication isObservable and isFinishedLaunching properties [#1367](https://github.com/koekeishiya/yabai/issues/1367)
+- Add compatibility between window animations and JankyBorders [#2087](https://github.com/koekeishiya/yabai/issues/2087)
+
+### Removed
+- Config option `window_animation_frame_rate` has been removed. Animations use CVDisplayLink to match monitor refresh rate [#2087](https://github.com/koekeishiya/yabai/issues/2087)
+
+## [6.0.9] - 2024-02-04
+### Changed
+- Fix detection of windows that are minimized before yabai is launched [#1833](https://github.com/koekeishiya/yabai/issues/1833)
+
+## [6.0.8] - 2024-02-04
+### Changed
+- All windows that report a non-standard window_level should be treated as floating (permanently), unless otherwise specified through manage=on rules [#2055](https://github.com/koekeishiya/yabai/issues/2055)
+- Fix detection of windows that are minimized before yabai is launched [#1833](https://github.com/koekeishiya/yabai/issues/1833)
+
+## [6.0.7] - 2024-01-25
+### Changed
+- Update scripting addition for macOS Sonoma 14.3 Intel (Apple Silicon is already supported in v6.0.6) [#2065](https://github.com/koekeishiya/yabai/issues/2065)
+- Fix regression causing window_destroyed signal to not trigger [#2048](https://github.com/koekeishiya/yabai/issues/2048)
+- Improved snappiness of window animations (time from trigger to start of animation) [#2060](https://github.com/koekeishiya/yabai/issues/2060)
+- Change window sublayer instead of layer, resulting in a more pleasant user experience [#2062](https://github.com/koekeishiya/yabai/issues/2062)
+
+## [6.0.6] - 2024-01-08
+### Changed
+- Cleanup handling of root-windows, child-windows, and window belonging to roles that are considered eligible for management [#2044](https://github.com/koekeishiya/yabai/issues/2044) [#2036](https://github.com/koekeishiya/yabai/issues/2036)
+
+## [6.0.5] - 2024-01-07
+### Changed
+- Attempt to separate root-windows from child/sub-windows to improve window detection and management logic [#2044](https://github.com/koekeishiya/yabai/issues/2044)
+
+## [6.0.4] - 2024-01-03
+### Changed
+- Changes to window detection logic [#2036](https://github.com/koekeishiya/yabai/issues/2036)
+
+## [6.0.3] - 2024-01-03
+### Changed
+- Changing window layer using rules or `window --layer` commands will exempt that window from automatic layer changes [#1929](https://github.com/koekeishiya/yabai/issues/1929)
+- Running `yabai --stop-service` should properly prevent yabai from starting after a reboot [#1921](https://github.com/koekeishiya/yabai/issues/1921)
+- `mission_control_enter/exit` signals include an environment variable to identify which mode was activated/deactivated [#2026](https://github.com/koekeishiya/yabai/issues/2026)
+- Stricter window type filter to avoid issues with e.g Text Completion, Input Source changes and other non-windows-that-report-as-windows [#1919](https://github.com/koekeishiya/yabai/issues/1919) [#1910](https://github.com/koekeishiya/yabai/issues/1910) [#1997](https://github.com/koekeishiya/yabai/issues/1997)
+- Expand process blacklist filter to ignore irrelevant processes (background services and helper services)
+
+## [6.0.2] - 2023-12-23
+### Changed
+- Update scripting addition for macOS Sonoma 14.2 and 14.2.1 [#2007](https://github.com/koekeishiya/yabai/issues/2007)
+- Spaces in stack layout should no longer incorrectly trigger a layout refresh on mouse down [#1493](https://github.com/koekeishiya/yabai/issues/1493)
+- Fix frame rounding issues causing small window displacement [#1680](https://github.com/koekeishiya/yabai/issues/1680)
+
+## [6.0.1] - 2023-11-12
+### Changed
+- Update scripting addition for macOS 14.1.1 (and probably 14.1) [#1936](https://github.com/koekeishiya/yabai/issues/1936)
+- Fix issue with focusing stacked windows due to layer changes [#1918](https://github.com/koekeishiya/yabai/issues/1918)
+- Allow window swap command to work on windows that are in the same space (with layout: stack), using the stack window selectors [#1952](https://github.com/koekeishiya/yabai/issues/1952)
+- Fix rare crash when processing window destroyed events [#1965](https://github.com/koekeishiya/yabai/issues/1965)
+
+## [6.0.0] - 2023-10-10
+### Added
+- Window query property `layer` has been added [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+
+### Changed
+- Fix issue causing window animations to flicker on macOS Ventura and Sonoma [#1879](https://github.com/koekeishiya/yabai/issues/1879)
+- All managed (read: tiled) windows are now automatically placed in the *below* layer. All unmanaged (read: floating) windows will use the default macOS *normal* layer and appear above the tiled layer, replicating the `window_topmost` functionality in a robust way [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- Automatic window opacity changes will now only apply to focus switches within the same space [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- `space --create` command now takes an optional `<DISPLAY_SEL>` instead of an optional `<SPACE_SEL>`
+
+### Removed
+- Config option `window_topmost` has been removed [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- Window command `--toggle` option `topmost` has been removed [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- Window query property `is-topmost` has been removed [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- Signal `application_activated` and `application_deactivated` has been removed; use `application_front_switched` instead [#1887](https://github.com/koekeishiya/yabai/issues/1887)
+- Window borders (and all related options/properties) have been removed [#1889](https://github.com/koekeishiya/yabai/issues/1889)
+
+## [5.0.9] - 2023-10-01
+### Changed
+- Updated scripting-addition to support macOS Sonoma 14.0 [#1772](https://github.com/koekeishiya/yabai/issues/1772)
+- Fix window focusing (autofocus, and autoraise across multiple monitors [#109](https://github.com/koekeishiya/yabai/issues/109)) for macOS Sonoma [#1772](https://github.com/koekeishiya/yabai/issues/1772)
+- Fix scripting-addition functionality that uses Dock.app connection to the WindowServer for macOS Sonoma [#1772](https://github.com/koekeishiya/yabai/issues/1772)
+- Fix mission-control integration for macOS Sonoma [#1772](https://github.com/koekeishiya/yabai/issues/1772)
+- Prevent *focus follows mouse* from activating the menubar in vertical display arrangements [#1857](https://github.com/koekeishiya/yabai/issues/1857)
+
+## [5.0.8] - 2023-09-12
+### Changed
+- Workaround for macOS Ventura reporting bad window levels when running yabai as a service, causing issues with window topmost [#1704](https://github.com/koekeishiya/yabai/issues/1704)
+
+## [5.0.7] - 2023-08-27
+### Added
+- Add launch argument `--help, -h` to print available options. [#1825](https://github.com/koekeishiya/yabai/issues/1825)
+
+### Changed
+- Allow window swap commands to work on windows that are in the same stack, using the stack window selectors [#960](https://github.com/koekeishiya/yabai/issues/960)
+- Properly remove assigned label when a space is destroyed [#1678](https://github.com/koekeishiya/yabai/issues/1678)
+- Add signals for `space_created` and `space_destroyed` [#1365](https://github.com/koekeishiya/yabai/issues/1365)
+
 ## [5.0.6] - 2023-05-27
 ### Changed
 - Change launchd service to only restart automatically upon crashes. You will need to run `yabai --uninstall-service` and `yabai --install-service`. [#1755](https://github.com/koekeishiya/yabai/issues/1755)
@@ -467,7 +644,29 @@ The *window_destroyed* signal is now triggered for windows that are implicitly d
 ### Added
 - First official release
 
-[Unreleased]: https://github.com/koekeishiya/yabai/compare/v5.0.6...HEAD
+[Unreleased]: https://github.com/koekeishiya/yabai/compare/v7.0.2...HEAD
+[7.0.2]: https://github.com/koekeishiya/yabai/compare/v7.0.1...v7.0.2
+[7.0.1]: https://github.com/koekeishiya/yabai/compare/v7.0.0...v7.0.1
+[7.0.0]: https://github.com/koekeishiya/yabai/compare/v6.0.15...v7.0.0
+[6.0.15]: https://github.com/koekeishiya/yabai/compare/v6.0.14...v6.0.15
+[6.0.14]: https://github.com/koekeishiya/yabai/compare/v6.0.13...v6.0.14
+[6.0.13]: https://github.com/koekeishiya/yabai/compare/v6.0.12...v6.0.13
+[6.0.12]: https://github.com/koekeishiya/yabai/compare/v6.0.11...v6.0.12
+[6.0.11]: https://github.com/koekeishiya/yabai/compare/v6.0.10...v6.0.11
+[6.0.10]: https://github.com/koekeishiya/yabai/compare/v6.0.9...v6.0.10
+[6.0.9]: https://github.com/koekeishiya/yabai/compare/v6.0.8...v6.0.9
+[6.0.8]: https://github.com/koekeishiya/yabai/compare/v6.0.7...v6.0.8
+[6.0.7]: https://github.com/koekeishiya/yabai/compare/v6.0.6...v6.0.7
+[6.0.6]: https://github.com/koekeishiya/yabai/compare/v6.0.5...v6.0.6
+[6.0.5]: https://github.com/koekeishiya/yabai/compare/v6.0.4...v6.0.5
+[6.0.4]: https://github.com/koekeishiya/yabai/compare/v6.0.3...v6.0.4
+[6.0.3]: https://github.com/koekeishiya/yabai/compare/v6.0.2...v6.0.3
+[6.0.2]: https://github.com/koekeishiya/yabai/compare/v6.0.1...v6.0.2
+[6.0.1]: https://github.com/koekeishiya/yabai/compare/v6.0.0...v6.0.1
+[6.0.0]: https://github.com/koekeishiya/yabai/compare/v5.0.9...v6.0.0
+[5.0.9]: https://github.com/koekeishiya/yabai/compare/v5.0.8...v5.0.9
+[5.0.8]: https://github.com/koekeishiya/yabai/compare/v5.0.7...v5.0.8
+[5.0.7]: https://github.com/koekeishiya/yabai/compare/v5.0.6...v5.0.7
 [5.0.6]: https://github.com/koekeishiya/yabai/compare/v5.0.5...v5.0.6
 [5.0.5]: https://github.com/koekeishiya/yabai/compare/v5.0.4...v5.0.5
 [5.0.4]: https://github.com/koekeishiya/yabai/compare/v5.0.3...v5.0.4

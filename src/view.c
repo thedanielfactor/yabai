@@ -1,25 +1,50 @@
 extern int g_connection;
-extern int g_floating_window_level;
 extern struct display_manager g_display_manager;
 extern struct space_manager g_space_manager;
 extern struct window_manager g_window_manager;
 
+void insert_feedback_update_notifications(void)
+{
+    int window_count = 0;
+    uint32_t window_list[1024] = {0};
+
+    for (int i = 0; i < g_window_manager.insert_feedback.capacity; ++i) {
+        struct bucket *bucket = g_window_manager.insert_feedback.buckets[i];
+        while (bucket) {
+            if (bucket->value) {
+                struct window_node *node = bucket->value;
+                window_list[window_count++] = node->window_order[0];
+            }
+
+            bucket = bucket->next;
+        }
+    }
+
+    SLSRequestNotificationsForWindows(g_connection, window_list, window_count);
+}
+
+#define INSERT_FEEDBACK_WIDTH 2
+#define INSERT_FEEDBACK_RADIUS 9
 void insert_feedback_show(struct window_node *node)
 {
+    bool created = false;
     CFTypeRef frame_region;
     CGRect frame = {{node->area.x, node->area.y},{node->area.w, node->area.h}};
     CGSNewRegionWithRect(&frame, &frame_region);
 
     if (!node->feedback_window.id) {
-        uint64_t tag = 1ULL << 46;
-        SLSNewWindow(g_connection, 2, 0, 0, frame_region, &node->feedback_window.id);
-        SLSSetWindowTags(g_connection, node->feedback_window.id, &tag, 64);
+        uint64_t tags = (1ULL << 1) | (1ULL << 9);
+        CFTypeRef empty_region = CGRegionCreateEmptyRegion();
+        SLSNewWindowWithOpaqueShapeAndContext(g_connection, 2, frame_region, empty_region, 13, &tags, 0, 0, 64, &node->feedback_window.id, NULL);
+        CFRelease(empty_region);
+
         sls_window_disable_shadow(node->feedback_window.id);
-        SLSSetWindowResolution(g_connection, node->feedback_window.id, 2.0f);
+        SLSSetWindowResolution(g_connection, node->feedback_window.id, 1.0f);
         SLSSetWindowOpacity(g_connection, node->feedback_window.id, 0);
-        SLSSetWindowLevel(g_connection, node->feedback_window.id, g_floating_window_level);
+        SLSSetWindowLevel(g_connection, node->feedback_window.id, window_level(node->window_order[0]));
+        SLSSetWindowSubLevel(g_connection, node->feedback_window.id, window_sub_level(node->window_order[0]));
         node->feedback_window.context = SLWindowContextCreate(g_connection, node->feedback_window.id, 0);
-        CGContextSetLineWidth(node->feedback_window.context, g_window_manager.border_width);
+        CGContextSetLineWidth(node->feedback_window.context, INSERT_FEEDBACK_WIDTH);
         CGContextSetRGBFillColor(node->feedback_window.context,
                                    g_window_manager.insert_feedback_color.r,
                                    g_window_manager.insert_feedback_color.g,
@@ -30,7 +55,9 @@ void insert_feedback_show(struct window_node *node)
                                    g_window_manager.insert_feedback_color.g,
                                    g_window_manager.insert_feedback_color.b,
                                    g_window_manager.insert_feedback_color.a);
-        buf_push(g_window_manager.insert_feedback_windows, node->feedback_window.id);
+        table_add(&g_window_manager.insert_feedback, &node->window_order[0], node);
+        insert_feedback_update_notifications();
+        created = true;
     }
 
     frame.origin.x = 0; frame.origin.y = 0;
@@ -40,44 +67,43 @@ void insert_feedback_show(struct window_node *node)
 
     switch (node->insert_dir) {
     case DIR_NORTH: {
-        clip_x = -0.5f * g_window_manager.border_width;
-        clip_y = midy - 0.5f * g_window_manager.border_width;
-        clip_w = g_window_manager.border_width;
-        clip_h = g_window_manager.border_width;
+        clip_x = -0.5f * INSERT_FEEDBACK_WIDTH;
+        clip_y = midy - 0.5f * INSERT_FEEDBACK_WIDTH;
+        clip_w = INSERT_FEEDBACK_WIDTH;
+        clip_h = INSERT_FEEDBACK_WIDTH;
     } break;
     case DIR_EAST: {
-        clip_x = midx - 0.5f * g_window_manager.border_width;
-        clip_y = -0.5f * g_window_manager.border_width;
-        clip_w = g_window_manager.border_width;
-        clip_h = g_window_manager.border_width;
+        clip_x = midx - 0.5f * INSERT_FEEDBACK_WIDTH;
+        clip_y = -0.5f * INSERT_FEEDBACK_WIDTH;
+        clip_w = INSERT_FEEDBACK_WIDTH;
+        clip_h = INSERT_FEEDBACK_WIDTH;
     } break;
     case DIR_SOUTH: {
-        clip_x = -0.5f * g_window_manager.border_width;
-        clip_y = -0.5f * g_window_manager.border_width;
-        clip_w = g_window_manager.border_width;
-        clip_h = -midy + g_window_manager.border_width;
+        clip_x = -0.5f * INSERT_FEEDBACK_WIDTH;
+        clip_y = -0.5f * INSERT_FEEDBACK_WIDTH;
+        clip_w = INSERT_FEEDBACK_WIDTH;
+        clip_h = -midy + INSERT_FEEDBACK_WIDTH;
     } break;
     case DIR_WEST: {
-        clip_x = -0.5f * g_window_manager.border_width;
-        clip_y = -0.5f * g_window_manager.border_width;
-        clip_w = -midx + g_window_manager.border_width;
-        clip_h = g_window_manager.border_width;
+        clip_x = -0.5f * INSERT_FEEDBACK_WIDTH;
+        clip_y = -0.5f * INSERT_FEEDBACK_WIDTH;
+        clip_w = -midx + INSERT_FEEDBACK_WIDTH;
+        clip_h = INSERT_FEEDBACK_WIDTH;
     } break;
     case STACK: {
-        clip_x = -0.5f * g_window_manager.border_width;
-        clip_y = -0.5f * g_window_manager.border_width;
-        clip_w = g_window_manager.border_width;
-        clip_h = g_window_manager.border_width;
+        clip_x = -0.5f * INSERT_FEEDBACK_WIDTH;
+        clip_y = -0.5f * INSERT_FEEDBACK_WIDTH;
+        clip_w = INSERT_FEEDBACK_WIDTH;
+        clip_h = INSERT_FEEDBACK_WIDTH;
     } break;
     }
 
-    CGRect rect = (CGRect) {{ 0.5f*g_window_manager.border_width, 0.5f*g_window_manager.border_width }, { frame.size.width - g_window_manager.border_width, frame.size.height - g_window_manager.border_width }};
-    CGRect fill = CGRectInset(rect, 0.5f*g_window_manager.border_width, 0.5f*g_window_manager.border_width);
+    CGRect rect = (CGRect) {{ 0.5f*INSERT_FEEDBACK_WIDTH, 0.5f*INSERT_FEEDBACK_WIDTH }, { frame.size.width - INSERT_FEEDBACK_WIDTH, frame.size.height - INSERT_FEEDBACK_WIDTH }};
+    CGRect fill = CGRectInset(rect, 0.5f*INSERT_FEEDBACK_WIDTH, 0.5f*INSERT_FEEDBACK_WIDTH);
     CGRect clip = { { rect.origin.x + clip_x, rect.origin.y + clip_y }, { rect.size.width + clip_w, rect.size.height + clip_h } };
-    CGPathRef path = CGPathCreateWithRoundedRect(rect, cgrect_clamp_x_radius(rect, g_window_manager.border_radius), cgrect_clamp_y_radius(rect, g_window_manager.border_radius), NULL);
+    CGPathRef path = CGPathCreateWithRoundedRect(rect, cgrect_clamp_x_radius(rect, INSERT_FEEDBACK_RADIUS), cgrect_clamp_y_radius(rect, INSERT_FEEDBACK_RADIUS), NULL);
 
     SLSDisableUpdate(g_connection);
-    SLSOrderWindow(g_connection, node->feedback_window.id, 0, node->window_order[0]);
     SLSSetWindowShape(g_connection, node->feedback_window.id, 0.0f, 0.0f, frame_region);
     CGContextClearRect(node->feedback_window.context, frame);
     CGContextClipToRect(node->feedback_window.context, clip);
@@ -86,22 +112,20 @@ void insert_feedback_show(struct window_node *node)
     CGContextStrokePath(node->feedback_window.context);
     CGContextResetClip(node->feedback_window.context);
     CGContextFlush(node->feedback_window.context);
-    SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
     SLSReenableUpdate(g_connection);
     CGPathRelease(path);
     CFRelease(frame_region);
+
+    if (created) SLSOrderWindow(g_connection, node->feedback_window.id, 1, node->window_order[0]);
 }
 
 void insert_feedback_destroy(struct window_node *node)
 {
     if (node->feedback_window.id) {
-        for (int i = 0; i < buf_len(g_window_manager.insert_feedback_windows); ++i) {
-            if (g_window_manager.insert_feedback_windows[i] == node->feedback_window.id) {
-                buf_del(g_window_manager.insert_feedback_windows, i);
-                break;
-            }
-        }
+        table_remove(&g_window_manager.insert_feedback, &node->window_order[0]);
+        insert_feedback_update_notifications();
 
+        SLSOrderWindow(g_connection, node->feedback_window.id, 0, 0);
         CGContextRelease(node->feedback_window.context);
         SLSReleaseWindow(g_connection, node->feedback_window.id);
         memset(&node->feedback_window, 0, sizeof(struct feedback_window));
@@ -130,50 +154,35 @@ static inline float window_node_get_ratio(struct window_node *node)
     return in_range_ii(node->ratio, 0.1f, 0.9f) ? node->ratio : g_space_manager.split_ratio;
 }
 
-static inline float window_node_get_gap(struct view *view)
+static inline int window_node_get_gap(struct view *view)
 {
-    return view->enable_gap ? view->window_gap*0.5f : 0.0f;
+    return view->enable_gap ? view->window_gap : 0;
 }
 
-#define area_ax_truncate(a)  \
-    a->x = (int)(a->x + 0.5f); \
-    a->y = (int)(a->y + 0.5f); \
-    a->w = (int)(a->w + 0.5f); \
-    a->h = (int)(a->h + 0.5f);
-
-static void area_make_pair(enum window_node_split split, float gap, float ratio, struct area *parent_area, struct area *left_area, struct area *right_area)
+static void area_make_pair(enum window_node_split split, int gap, float ratio, struct area *parent_area, struct area *left_area, struct area *right_area)
 {
     if (split == SPLIT_Y) {
         *left_area = *parent_area;
-        left_area->w *= ratio;
-        left_area->w -= gap;
+        left_area->w = (int)((parent_area->w - gap) * ratio);
 
         *right_area = *parent_area;
-        right_area->x += (parent_area->w * ratio);
-        right_area->w *= (1 - ratio);
-        right_area->x += gap;
-        right_area->w -= gap;
+        right_area->x += (left_area->w + gap);
+        right_area->w = (int)((parent_area->w - gap) * (1 - ratio));
     } else {
         *left_area = *parent_area;
-        left_area->h *= ratio;
-        left_area->h -= gap;
+        left_area->h = (int)((parent_area->h - gap) * ratio);
 
         *right_area = *parent_area;
-        right_area->y += (parent_area->h * ratio);
-        right_area->h *= (1 - ratio);
-        right_area->y += gap;
-        right_area->h -= gap;
+        right_area->y += (left_area->h + gap);
+        right_area->h = (int)((parent_area->h - gap) * (1 - ratio));
     }
-
-    area_ax_truncate(left_area);
-    area_ax_truncate(right_area);
 }
 
 static void area_make_pair_for_node(struct view *view, struct window_node *node)
 {
     enum window_node_split split = window_node_get_split(node);
     float ratio = window_node_get_ratio(node);
-    float gap   = window_node_get_gap(view);
+    int gap     = window_node_get_gap(view);
 
     area_make_pair(split, gap, ratio, &node->area, &node->left->area, &node->right->area);
 
@@ -206,23 +215,48 @@ static inline bool window_node_is_right_child(struct window_node *node)
     return node->parent && node->parent->right == node;
 }
 
-static inline struct equalize_node equalize_node_add(struct equalize_node a, struct equalize_node b)
+static inline bool window_node_is_occluded_by_zoom(struct window_node *node)
 {
-    return (struct equalize_node) { a.y_count + b.y_count, a.x_count + b.x_count, };
+    if (!node->parent) return false;
+    
+    if (window_node_is_right_child(node) && node->parent->left->zoom == node->parent)
+      return true;
+    else if (window_node_is_left_child(node) && node->parent->right->zoom == node->parent)
+      return true;
+    return window_node_is_occluded_by_zoom(node->parent);
 }
 
-static struct equalize_node window_node_equalize(struct window_node *node, uint32_t axis_flag)
+static void window_node_equalize(struct window_node *node, uint32_t axis_flag)
+{
+    if (node->left)  window_node_equalize(node->left, axis_flag);
+    if (node->right) window_node_equalize(node->right, axis_flag);
+
+    if ((axis_flag & SPLIT_Y) && node->split == SPLIT_Y) {
+        node->ratio = g_space_manager.split_ratio;
+    }
+
+    if ((axis_flag & SPLIT_X) && node->split == SPLIT_X) {
+        node->ratio = g_space_manager.split_ratio;
+    }
+}
+
+static inline struct balance_node balance_node_add(struct balance_node a, struct balance_node b)
+{
+    return (struct balance_node) { a.y_count + b.y_count, a.x_count + b.x_count, };
+}
+
+static struct balance_node window_node_balance(struct window_node *node, uint32_t axis_flag)
 {
     if (window_node_is_leaf(node)) {
-        return (struct equalize_node) {
+        return (struct balance_node) {
             node->parent ? node->parent->split == SPLIT_Y : 0,
             node->parent ? node->parent->split == SPLIT_X : 0
         };
     }
 
-    struct equalize_node left_leafs  = window_node_equalize(node->left, axis_flag);
-    struct equalize_node right_leafs = window_node_equalize(node->right, axis_flag);
-    struct equalize_node total_leafs = equalize_node_add(left_leafs, right_leafs);
+    struct balance_node left_leafs  = window_node_balance(node->left, axis_flag);
+    struct balance_node right_leafs = window_node_balance(node->right, axis_flag);
+    struct balance_node total_leafs = balance_node_add(left_leafs, right_leafs);
 
     if (axis_flag & SPLIT_Y) {
         if (node->split == SPLIT_Y) {
@@ -295,13 +329,10 @@ static void window_node_split(struct view *view, struct window_node *node, struc
 
 void window_node_update(struct view *view, struct window_node *node)
 {
-    if (window_node_is_intermediate(node)) {
-        area_make_pair_for_node(view, node->parent);
-    }
-
     if (window_node_is_leaf(node)) {
         if (node->insert_dir) insert_feedback_show(node);
     } else {
+        area_make_pair_for_node(view, node);
         window_node_update(view, node->left);
         window_node_update(view, node->right);
     }
@@ -332,23 +363,15 @@ static void window_node_clear_zoom(struct window_node *node)
 
 void window_node_capture_windows(struct window_node *node, struct window_capture **window_list)
 {
-    if (window_node_is_occupied(node)) {
+    if (window_node_is_leaf(node)) {
         for (int i = 0; i < node->window_count; ++i) {
             struct window *window = window_manager_find_window(&g_window_manager, node->window_list[i]);
             if (window) {
                 struct area area = node->zoom ? node->zoom->area : node->area;
-                if (window->border.id) {
-                    area.x += g_window_manager.border_width;
-                    area.y += g_window_manager.border_width;
-                    area.w -= g_window_manager.border_width * 2.0f;
-                    area.h -= g_window_manager.border_width * 2.0f;
-                }
                 ts_buf_push(*window_list, ((struct window_capture) { .window = window, .x = area.x, .y = area.y, .w = area.w, .h = area.h }));
             }
         }
-    }
-
-    if (!window_node_is_leaf(node)) {
+    } else {
         window_node_capture_windows(node->left, window_list);
         window_node_capture_windows(node->right, window_list);
     }
@@ -580,11 +603,21 @@ struct window_node *view_find_window_node_in_direction(struct view *view, struct
 
     struct window_node *target = window_node_find_first_leaf(view->root);
     while (target) {
-        if (source == target) goto next;
+        if (target->zoom == view->root) {
+          if (target != source) return target;
+          else return NULL;
+        }
 
-        CGPoint target_area_max = { target->area.x + target->area.w - 1, target->area.y + target->area.h - 1 };
-        if (area_is_in_direction(&source->area, source_area_max, &target->area, target_area_max, direction)) {
-            int distance = area_distance_in_direction(&source->area, source_area_max, &target->area, target_area_max, direction);
+        if (source == target || window_node_is_occluded_by_zoom(target))
+          goto next;
+
+        struct area* target_area = target->zoom
+                                    ? &target->zoom->area
+                                    : &target->area;
+
+        CGPoint target_area_max = { target_area->x + target_area->w - 1, target_area->y + target_area->h - 1 };
+        if (area_is_in_direction(&source->area, source_area_max, target_area, target_area_max, direction)) {
+            int distance = area_distance_in_direction(&source->area, source_area_max, target_area, target_area_max, direction);
             int rank = window_manager_find_rank_of_window_in_list(target->window_order[0], window_list, window_count);
             if ((distance < best_distance) || (distance == best_distance && rank < best_rank)) {
                 best_node = target;
@@ -704,17 +737,15 @@ struct window_node *view_remove_window_node(struct view *view, struct window *wi
             window_node_clear_zoom(parent);
         }
 
-        window_node_update(view, parent->left);
-        window_node_update(view, parent->right);
+        window_node_update(view, parent);
     }
 
     insert_feedback_destroy(node);
-
     free(child);
     free(node);
 
     if (g_space_manager.auto_balance) {
-        window_node_equalize(view->root, SPLIT_X | SPLIT_Y);
+        window_node_balance(view->root, SPLIT_X | SPLIT_Y);
         view_update(view);
         return view->root;
     }
@@ -770,7 +801,7 @@ struct window_node *view_add_window_node_with_insertion_point(struct view *view,
         window_node_split(view, leaf, window);
 
         if (g_space_manager.auto_balance) {
-            window_node_equalize(view->root, SPLIT_X | SPLIT_Y);
+            window_node_balance(view->root, SPLIT_X | SPLIT_Y);
             view_update(view);
             return view->root;
         }
@@ -789,12 +820,25 @@ struct window_node *view_add_window_node(struct view *view, struct window *windo
     return view_add_window_node_with_insertion_point(view, window, 0);
 }
 
+uint32_t view_window_count(struct view *view)
+{
+    uint32_t window_count = 0;
+
+    struct window_node *node = window_node_find_first_leaf(view->root);
+    while (node) {
+        window_count += node->window_count;
+        node = window_node_find_next_leaf(node);
+    }
+
+    return window_count;
+}
+
 uint32_t *view_find_window_list(struct view *view, int *window_count)
 {
     *window_count = 0;
 
     int capacity = 13;
-    uint32_t *window_list = ts_alloc_aligned(sizeof(uint32_t), capacity);
+    uint32_t *window_list = ts_alloc_list(uint32_t, capacity);
 
     struct window_node *node = window_node_find_first_leaf(view->root);
     while (node) {
@@ -825,12 +869,18 @@ bool view_is_dirty(struct view *view)
 
 void view_flush(struct view *view)
 {
-    window_node_flush(view->root);
-    view->is_dirty = false;
+    if (space_is_visible(view->sid)) {
+        window_node_flush(view->root);
+        view->is_dirty = false;
+    } else {
+        view->is_dirty = true;
+    }
 }
 
 void view_serialize(FILE *rsp, struct view *view)
 {
+    TIME_FUNCTION;
+
     char *uuid = ts_cfstring_copy(view->suuid);
     int buffer_size = MAXLEN;
     size_t bytes_written = 0;
@@ -876,7 +926,7 @@ void view_serialize(FILE *rsp, struct view *view)
             space_manager_mission_control_index(view->sid),
             space_label ? space_label->label : "",
             view_type_str[view->layout],
-            display_arrangement(space_display_id(view->sid)),
+            display_manager_display_id_arrangement(space_display_id(view->sid)),
             buffer,
             first_leaf ? first_leaf->window_order[0] : 0,
             last_leaf ? last_leaf->window_order[0] : 0,

@@ -1,6 +1,9 @@
 #ifndef VIEW_H
 #define VIEW_H
 
+#define AX_ABS(a, b) (((a) - (b) < 0) ? (((a) - (b)) * -1) : ((a) - (b)))
+#define AX_DIFF(a, b) (AX_ABS(a, b) >= 1.5f)
+
 struct window;
 
 struct area
@@ -24,13 +27,16 @@ struct window_proxy
     float tx, ty, tw, th;
     CGRect frame;
     int level;
-    CFArrayRef image;
+    int sub_level;
+    CGImageRef image;
 };
 
 struct window_animation
 {
+    struct window *window;
     uint32_t wid;
     float x, y, w, h;
+    int cid;
     struct window_proxy proxy;
     volatile bool skip;
 };
@@ -38,12 +44,14 @@ struct window_animation
 struct window_animation_context
 {
     int animation_connection;
+    int animation_easing;
     float animation_duration;
-    int animation_frame_rate;
+    uint64_t animation_clock;
     struct window_animation *animation_list;
+    int animation_count;
 };
 
-struct equalize_node
+struct balance_node
 {
     int y_count;
     int x_count;
@@ -164,6 +172,7 @@ struct window_node *view_add_window_node_with_insertion_point(struct view *view,
 struct window_node *view_add_window_node(struct view *view, struct window *window);
 struct window_node *view_remove_window_node(struct view *view, struct window *window);
 uint32_t *view_find_window_list(struct view *view, int *window_count);
+uint32_t view_window_count(struct view *view);
 
 void view_serialize(FILE *rsp, struct view *view);
 bool view_is_invalid(struct view *view);

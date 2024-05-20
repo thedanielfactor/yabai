@@ -17,7 +17,7 @@ uint32_t space_display_id(uint64_t sid)
 uint32_t *space_window_list_for_connection(uint64_t *space_list, int space_count, int cid, int *count, bool include_minimized)
 {
     uint32_t *window_list = NULL;
-    uint64_t set_tags = 1;
+    uint64_t set_tags = 0;
     uint64_t clear_tags = 0;
     uint32_t options = include_minimized ? 0x7 : 0x2;
 
@@ -32,7 +32,7 @@ uint32_t *space_window_list_for_connection(uint64_t *space_list, int space_count
     CFTypeRef iterator = SLSWindowQueryResultCopyWindows(query);
 
     int window_count = 0;
-    window_list = ts_alloc_aligned(sizeof(uint32_t), *count);
+    window_list = ts_alloc_list(uint32_t, *count);
 
     while (SLSWindowIteratorAdvance(iterator)) {
         uint64_t tags = SLSWindowIteratorGetTags(iterator);
@@ -40,9 +40,26 @@ uint32_t *space_window_list_for_connection(uint64_t *space_list, int space_count
         uint32_t parent_wid = SLSWindowIteratorGetParentID(iterator);
         uint32_t wid = SLSWindowIteratorGetWindowID(iterator);
 
-        if ((window_manager_find_window(&g_window_manager, wid)) ||
-            ((parent_wid == 0) && ((attributes & 0x2) || (tags & 0x400000000000000)) && (((tags & 0x1)) || ((tags & 0x2) && (tags & 0x80000000))))) {
-            window_list[window_count++] = wid;
+        if (include_minimized) {
+            struct window *window = window_manager_find_window(&g_window_manager, wid);
+            if (window) {
+                window_list[window_count++] = wid;
+            } else if (parent_wid == 0) {
+                if (((attributes & 0x2) || (tags & 0x400000000000000)) && (((tags & 0x1)) || ((tags & 0x2) && (tags & 0x80000000)))) {
+                    window_list[window_count++] = wid;
+                } else if (((attributes == 0x0 || attributes == 0x1) && (tags & 0x1000000000000000)) && (((tags & 0x1)) || ((tags & 0x2) && (tags & 0x80000000)))) {
+                    window_list[window_count++] = wid;
+                }
+            }
+        } else {
+            struct window *window = window_manager_find_window(&g_window_manager, wid);
+            if (window && !window_is_minimized(window)) {
+                window_list[window_count++] = wid;
+            } else if (parent_wid == 0) {
+                if (((attributes & 0x2) || (tags & 0x400000000000000)) && (((tags & 0x1)) || ((tags & 0x2) && (tags & 0x80000000)))) {
+                    window_list[window_count++] = wid;
+                }
+            }
         }
     }
 

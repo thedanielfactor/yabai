@@ -1,5 +1,4 @@
 extern struct window_manager g_window_manager;
-extern int g_mission_control_active;
 extern int g_connection;
 
 static TABLE_HASH_FUNC(hash_view)
@@ -14,6 +13,8 @@ static TABLE_COMPARE_FUNC(compare_view)
 
 bool space_manager_query_space(FILE *rsp, uint64_t sid)
 {
+    TIME_FUNCTION;
+
     struct view *view = space_manager_query_view(&g_space_manager, sid);
     if (!view) return false;
 
@@ -24,8 +25,10 @@ bool space_manager_query_space(FILE *rsp, uint64_t sid)
 
 bool space_manager_query_spaces_for_window(FILE *rsp, struct window *window)
 {
+    TIME_FUNCTION;
+
     int space_count;
-    uint64_t *space_list = window_space_list(window, &space_count);
+    uint64_t *space_list = window_space_list(window->id, &space_count);
     if (!space_list) return false;
 
     fprintf(rsp, "[");
@@ -43,6 +46,8 @@ bool space_manager_query_spaces_for_window(FILE *rsp, struct window *window)
 
 bool space_manager_query_spaces_for_display(FILE *rsp, uint32_t did)
 {
+    TIME_FUNCTION;
+
     int space_count;
     uint64_t *space_list = display_space_list(did, &space_count);
     if (!space_list) return false;
@@ -62,6 +67,8 @@ bool space_manager_query_spaces_for_display(FILE *rsp, uint32_t did)
 
 bool space_manager_query_spaces_for_displays(FILE *rsp)
 {
+    TIME_FUNCTION;
+
     int display_count;
     uint32_t *display_list = display_manager_active_display_list(&display_count);
     if (!display_list) return false;
@@ -108,7 +115,17 @@ void space_manager_refresh_view(struct space_manager *sm, uint64_t sid)
     struct view *view = space_manager_find_view(sm, sid);
     if (view->layout == VIEW_FLOAT) return;
 
-    view_update(view);
+    uint32_t window_count = view_window_count(view);
+    if (!space_manager_autopad_view(sm, view, window_count, true)) {
+      view->left_padding = sm->left_padding;
+      view->right_padding = sm->right_padding;
+      view->top_padding = sm->top_padding;
+      view->bottom_padding = sm->bottom_padding;
+
+      sm->split_type = SPLIT_AUTO;
+      sm->auto_balance = false;
+      view_update(view);
+    }
     view_flush(view);
 }
 
@@ -117,12 +134,54 @@ void space_manager_mark_view_invalid(struct space_manager *sm,  uint64_t sid)
     struct view *view = space_manager_find_view(sm, sid);
     if (view->layout == VIEW_FLOAT) return;
 
+    uint32_t window_count = view_window_count(view);
+    if (!space_manager_autopad_view(sm, view, window_count, false)) {
+      view->left_padding = sm->left_padding;
+      view->right_padding = sm->right_padding;
+      view->top_padding = sm->top_padding;
+      view->bottom_padding = sm->bottom_padding;
+
+      sm->split_type = SPLIT_AUTO;
+      sm->auto_balance = false;
+    }
+
     view->is_valid = false;
+}
+
+bool space_manager_auto_pad_untile_window(struct space_manager* sm, struct view* view, struct window* window) {
+    uint32_t window_count = view_window_count(view);
+
+    if (space_manager_autopad_view(sm, view, window_count - 1, true)) {
+      struct window_node *node = view_remove_window_node(view, window);
+      if (!node) {
+        sm->auto_balance = false;
+        space_manager_reset_view_paddings(sm, view);
+        return true;
+      }
+      if (space_is_visible(view->sid)) {
+          window_node_flush(node);
+      } else {
+          view->is_dirty = true;
+      }
+      return true;
+    }
+
+    sm->auto_balance = false;
+    return false;
 }
 
 void space_manager_untile_window(struct space_manager *sm, struct view *view, struct window *window)
 {
     if (view->layout == VIEW_FLOAT) return;
+
+    window_manager_adjust_layer(window, LAYER_NORMAL);
+    if (sm->autopad->enabled) {
+      uint32_t did = space_display_id(view->sid);
+      CGRect frame = CGDisplayBounds(did);
+      if (frame.size.width / frame.size.height > sm->autopad->min_aspect
+          && frame.size.height > space_manager_autopad_height(sm, &frame.size)
+          && space_manager_auto_pad_untile_window(sm, view, window)) return;
+    }
 
     struct window_node *node = view_remove_window_node(view, window);
     if (!node) return;
@@ -368,7 +427,7 @@ bool space_manager_mirror_space(struct space_manager *sm, uint64_t sid, enum win
     return true;
 }
 
-bool space_manager_balance_space(struct space_manager *sm, uint64_t sid, uint32_t axis_flag)
+bool space_manager_equalize_space(struct space_manager *sm, uint64_t sid, uint32_t axis_flag)
 {
     struct view *view = space_manager_find_view(sm, sid);
     if (view->layout != VIEW_BSP) return false;
@@ -380,10 +439,187 @@ bool space_manager_balance_space(struct space_manager *sm, uint64_t sid, uint32_
     return true;
 }
 
+bool space_manager_balance_space(struct space_manager *sm, uint64_t sid, uint32_t axis_flag)
+{
+    struct view *view = space_manager_find_view(sm, sid);
+    if (view->layout != VIEW_BSP) return false;
+
+    window_node_balance(view->root, axis_flag);
+    view_update(view);
+    view_flush(view);
+
+    return true;
+}
+
+struct view* space_manager_auto_pad_view_insertion(struct space_manager* sm, struct view* view, struct window* window, uint32_t insertion_point) {
+    uint32_t window_count = view_window_count(view);
+
+    if (space_manager_autopad_view(sm, view, window_count + 1, true)) {
+      struct window_node *node = view_add_window_node_with_insertion_point(view, window, insertion_point);
+      if (space_is_visible(view->sid)) {
+          window_node_flush(node);
+      } else {
+          view->is_dirty = true;
+      }
+      return view;
+    } else if (space_manager_reset_view_paddings(sm, view)) {
+        sm->split_type = (window_count == 1) ? SPLIT_Y : SPLIT_X;
+        sm->auto_balance = true;
+        struct window_node *node = view_add_window_node_with_insertion_point(view, window, insertion_point);
+        if (space_is_visible(view->sid)) {
+            window_node_flush(node);
+        } else {
+            view->is_dirty = true;
+        }
+        sm->auto_balance = false;
+        sm->split_type = SPLIT_AUTO;
+        return view;
+    }
+
+    sm->auto_balance = false;
+    sm->split_type = SPLIT_AUTO;
+
+    return NULL;
+}
+
+void space_manager_set_autopad(struct space_manager* sm, bool enabled) {
+  if (sm->autopad->enabled == enabled) {
+    return;
+  }
+
+  sm->autopad->enabled = enabled;
+  space_manager_mark_spaces_invalid(sm);
+}
+
+void space_manager_set_autopad_width(struct space_manager* sm, enum space_autopad_value_type new_type, int new_width) {
+  enum space_autopad_value_type old_type = sm->autopad->width_type;
+  int old_width = sm->autopad->width;
+
+  sm->autopad->width_type = new_type;
+  sm->autopad->width = new_width;
+
+  if (sm->autopad->enabled && ( old_type != new_type || old_width != new_width )) {
+    space_manager_mark_spaces_invalid(sm);
+  }
+}
+
+void space_manager_set_autopad_height(struct space_manager* sm, enum space_autopad_value_type new_type, int new_height) {
+  enum space_autopad_value_type old_type = sm->autopad->height_type;
+  int old_height = sm->autopad->height;
+
+  sm->autopad->height_type = new_type;
+  sm->autopad->height = new_height;
+
+  if (sm->autopad->enabled && (old_type != new_type || old_height != new_height)) {
+    space_manager_mark_spaces_invalid(sm);
+  }
+}
+
+void space_manager_set_autopad_min_aspect(struct space_manager* sm, float aspect_numerator, int aspect_denominator) {
+  float old_aspect = sm->autopad->min_aspect;
+  if (aspect_denominator > 1) {
+    sprintf(sm->autopad->pretty_aspect_ratio, "%d:%d", (int)aspect_numerator, aspect_denominator);
+    sm->autopad->min_aspect = (aspect_numerator - 1.f) / (float)aspect_denominator;
+  } else {
+    sprintf(sm->autopad->pretty_aspect_ratio, "%.4f", aspect_numerator);
+    sm->autopad->min_aspect = aspect_numerator;
+  }
+
+  if (sm->autopad->enabled && old_aspect != sm->autopad->min_aspect) {
+    space_manager_mark_spaces_invalid(sm);
+  }
+}
+
+int space_manager_autopad_height(struct space_manager* sm, CGSize* view_size) {
+  if (sm->autopad->height_type == SPACE_AUTOPAD_VALUE_FIXED_INT) {
+    return sm->autopad->height;
+  } else {
+    // XXX: may be worth the complexity to memoize this per did per EVENT_HANDLER(DISPLAY_RESIZED)
+    return (sm->autopad->height * view_size->height) / 100;
+  }
+}
+
+int space_manager_autopad_width(struct space_manager* sm, CGSize* view_size) {
+  if (sm->autopad->width_type == SPACE_AUTOPAD_VALUE_FIXED_INT) {
+    return sm->autopad->width;
+  } else {
+    // XXX: may be worth the complexity to memoize this per did per EVENT_HANDLER(DISPLAY_RESIZED)
+    return (sm->autopad->width * view_size->width) / 100;
+  }
+}
+
+bool space_manager_autopad_view(struct space_manager* sm, struct view* view, uint32_t window_count, bool update) {
+  if (sm->autopad->enabled) {
+    uint32_t did = space_display_id(view->sid);
+    CGRect frame = CGDisplayBounds(did);
+
+    int target_height = space_manager_autopad_height(sm, &frame.size);
+    int target_width = space_manager_autopad_width(sm, &frame.size);
+
+    if (frame.size.width / frame.size.height >= sm->autopad->min_aspect
+        && frame.size.height > target_height) {
+      uint32_t fit = frame.size.width / target_width;
+
+      if (window_count <= fit) {
+        if (window_count == 1 && fit >= 2) {
+          uint32_t gaps = 0;
+          view->left_padding = (frame.size.width - gaps - (window_count + 1) * target_width) / 2;
+          view->right_padding = (frame.size.width - gaps - (window_count + 1) * target_width) / 2;
+        } else {
+          uint32_t gaps = window_count > 1 ? (window_count - 1) * view->window_gap : 0;
+          view->left_padding = (frame.size.width - gaps - (window_count) * target_width) / 2;
+          view->right_padding = (frame.size.width - gaps - (window_count) * target_width) / 2;
+        }
+
+        if (frame.size.height > target_height) {
+          view->top_padding = (frame.size.height - target_height) / 2;
+          view->bottom_padding = (frame.size.height - target_height) / 2;
+        } else {
+          view->top_padding = sm->top_padding;
+          view->bottom_padding = sm->bottom_padding;
+        }
+
+        sm->split_type = SPLIT_Y;
+        sm->auto_balance = true;
+        if (update) view_update(view);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool space_manager_reset_view_paddings(struct space_manager* sm, struct view* view) {
+  if (view->left_padding != sm->left_padding
+      || view->right_padding != sm->right_padding
+      || view->top_padding != sm->top_padding
+      || view->bottom_padding != sm->bottom_padding) {
+    view->left_padding = sm->left_padding;
+    view->right_padding = sm->right_padding;
+    view->top_padding = sm->top_padding;
+    view->bottom_padding = sm->bottom_padding;
+    sm->auto_balance = false;
+    view_update(view);
+    return true;
+  }
+  return false;
+}
+
 struct view *space_manager_tile_window_on_space_with_insertion_point(struct space_manager *sm, struct window *window, uint64_t sid, uint32_t insertion_point)
 {
     struct view *view = space_manager_find_view(sm, sid);
     if (view->layout == VIEW_FLOAT) return view;
+
+    window_manager_adjust_layer(window, LAYER_BELOW);
+    if (sm->autopad->enabled) {
+      uint32_t did = space_display_id(view->sid);
+      CGRect frame = CGDisplayBounds(did);
+      if (frame.size.width / frame.size.height >= sm->autopad->min_aspect
+          && frame.size.height > space_manager_autopad_height(sm, &frame.size)) {
+        struct view* auto_padded_view = space_manager_auto_pad_view_insertion(sm, view, window, insertion_point);
+        if (auto_padded_view) return auto_padded_view;
+      }
+    }
 
     struct window_node *node = view_add_window_node_with_insertion_point(view, window, insertion_point);
     assert(node);
@@ -404,7 +640,7 @@ struct view *space_manager_tile_window_on_space(struct space_manager *sm, struct
 
 void space_manager_toggle_window_split(struct space_manager *sm, struct window *window)
 {
-    struct view *view = space_manager_find_view(sm, window_space(window));
+    struct view *view = space_manager_find_view(sm, window_space(window->id));
     if (view->layout != VIEW_BSP) return;
 
     struct window_node *node = view_find_window_node(view, window->id);
@@ -412,12 +648,16 @@ void space_manager_toggle_window_split(struct space_manager *sm, struct window *
         node->parent->split = node->parent->split == SPLIT_Y ? SPLIT_X : SPLIT_Y;
 
         if (sm->auto_balance) {
-            window_node_equalize(view->root, SPLIT_X | SPLIT_Y);
+            window_node_balance(view->root, SPLIT_X | SPLIT_Y);
             view_update(view);
             view_flush(view);
         } else {
             window_node_update(view, node->parent);
-            window_node_flush(node->parent);
+            if (space_is_visible(view->sid)) {
+                window_node_flush(node->parent);
+            } else {
+                view->is_dirty = true;
+            }
         }
     }
 }
@@ -582,7 +822,7 @@ uint64_t space_manager_active_space(void)
     uint32_t did = 0;
     struct window *window = window_manager_focused_window(&g_window_manager);
 
-    if (window) did = window_display_id(window);
+    if (window) did = window_display_id(window->id);
     if (!did)   did = display_manager_active_display_id();
     if (!did)   return 0;
 
@@ -591,38 +831,9 @@ uint64_t space_manager_active_space(void)
 
 void space_manager_move_window_to_space(uint64_t sid, struct window *window)
 {
-    int window_count = window->border.id ? 2 : 1;
-    uint32_t window_list[2] = { window->id, window->border.id };
-
-    CFArrayRef window_list_ref = cfarray_of_cfnumbers(window_list, sizeof(uint32_t), window_count, kCFNumberSInt32Type);
+    CFArrayRef window_list_ref = cfarray_of_cfnumbers(&window->id, sizeof(uint32_t), 1, kCFNumberSInt32Type);
     SLSMoveWindowsToManagedSpace(g_connection, window_list_ref, sid);
     CFRelease(window_list_ref);
-}
-
-enum space_op_error space_manager_focus_space(uint64_t sid)
-{
-    bool is_in_mc = g_mission_control_active;
-    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
-
-    uint64_t cur_sid = space_manager_active_space();
-    if (cur_sid == sid) return SPACE_OP_ERROR_SAME_SPACE;
-
-    uint32_t cur_did = space_display_id(cur_sid);
-    uint32_t new_did = space_display_id(sid);
-    bool focus_display = cur_did != new_did;
-
-    bool is_animating = display_manager_display_is_animating(new_did);
-    if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
-
-    if (scripting_addition_focus_space(sid)) {
-        if (focus_display) {
-            display_manager_focus_display(new_did, sid);
-        }
-    } else {
-        return SPACE_OP_ERROR_SCRIPTING_ADDITION;
-    }
-
-    return SPACE_OP_ERROR_SUCCESS;
 }
 
 static inline uint64_t space_manager_find_first_user_space_for_display(uint32_t did)
@@ -663,16 +874,76 @@ static inline bool space_manager_is_space_last_user_space(uint64_t sid)
     return result;
 }
 
+static enum space_op_error space_manager_swap_space_with_space_on_display(uint32_t a_did, uint64_t a_sid, uint32_t b_did, uint64_t b_sid)
+{
+    if (display_manager_display_is_animating(a_did)) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
+    if (display_manager_display_is_animating(b_did)) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
+
+    float window_animation_duration = g_window_manager.window_animation_duration;
+    g_window_manager.window_animation_duration = 0.0f;
+    __asm__ __volatile__ ("" ::: "memory");
+
+    int a_window_list_count = 0;
+    uint32_t *a_window_list = space_window_list(a_sid, &a_window_list_count, true);
+
+    int b_window_list_count = 0;
+    uint32_t *b_window_list = space_window_list(b_sid, &b_window_list_count, true);
+
+    struct view *a_view = table_find(&g_space_manager.view, &a_sid);
+    struct view *b_view = table_find(&g_space_manager.view, &b_sid);
+
+    table_remove(&g_space_manager.view, &a_sid);
+    table_remove(&g_space_manager.view, &b_sid);
+
+    a_view->sid = b_sid;
+    b_view->sid = a_sid;
+
+    CFStringRef tmp = a_view->suuid;
+    a_view->suuid   = b_view->suuid;
+    b_view->suuid   = tmp;
+
+    table_add(&g_space_manager.view, &a_sid, b_view);
+    table_add(&g_space_manager.view, &b_sid, a_view);
+
+    if (a_window_list_count) {
+        CFArrayRef window_list_ref = cfarray_of_cfnumbers(a_window_list, sizeof(uint32_t), a_window_list_count, kCFNumberSInt32Type);
+        SLSMoveWindowsToManagedSpace(g_connection, window_list_ref, b_sid);
+        CFRelease(window_list_ref);
+    }
+
+    if (b_window_list_count) {
+        CFArrayRef window_list_ref = cfarray_of_cfnumbers(b_window_list, sizeof(uint32_t), b_window_list_count, kCFNumberSInt32Type);
+        SLSMoveWindowsToManagedSpace(g_connection, window_list_ref, a_sid);
+        CFRelease(window_list_ref);
+    }
+
+    for (int i = 0; i < buf_len(g_space_manager.labels); ++i) {
+        struct space_label *label = &g_space_manager.labels[i];
+        if      (label->sid == a_sid) label->sid = b_sid;
+        else if (label->sid == b_sid) label->sid = a_sid;
+    }
+
+    view_update(a_view);
+    view_update(b_view);
+
+    view_flush(a_view);
+    view_flush(b_view);
+
+    __asm__ __volatile__ ("" ::: "memory");
+    g_window_manager.window_animation_duration = window_animation_duration;
+    return SPACE_OP_ERROR_SUCCESS;
+}
+
 enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uint64_t selector_sid)
 {
-    bool is_in_mc = g_mission_control_active;
+    bool is_in_mc = mission_control_is_active();
     if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
 
     uint32_t acting_did = space_display_id(acting_sid);
     uint32_t selector_did = space_display_id(selector_sid);
 
     if (acting_sid == selector_sid) return SPACE_OP_ERROR_SAME_SPACE;
-    if (acting_did != selector_did) return SPACE_OP_ERROR_SAME_DISPLAY;
+    if (acting_did != selector_did) return space_manager_swap_space_with_space_on_display(acting_did, acting_sid, selector_did, selector_sid);
 
     bool is_animating = display_manager_display_is_animating(acting_did);
     if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
@@ -715,7 +986,7 @@ enum space_op_error space_manager_swap_space_with_space(uint64_t acting_sid, uin
 
 enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint64_t selector_sid)
 {
-    bool is_in_mc = g_mission_control_active;
+    bool is_in_mc = mission_control_is_active();
     if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
 
     uint32_t acting_did = space_display_id(acting_sid);
@@ -755,7 +1026,7 @@ enum space_op_error space_manager_move_space_to_space(uint64_t acting_sid, uint6
 
 enum space_op_error space_manager_move_space_to_display(struct space_manager *sm, uint64_t sid, uint32_t did)
 {
-    bool is_in_mc = g_mission_control_active;
+    bool is_in_mc = mission_control_is_active();
     if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
     if (!sid)     return SPACE_OP_ERROR_MISSING_SRC;
 
@@ -774,18 +1045,74 @@ enum space_op_error space_manager_move_space_to_display(struct space_manager *sm
     uint64_t d_sid = display_space_id(did);
     if (!d_sid) return SPACE_OP_ERROR_MISSING_DST;
 
-    if (scripting_addition_move_space_after_space(sid, d_sid, 1)) {
+    bool focus_space = sid == space_manager_active_space();
+
+    if (scripting_addition_move_space_to_display(sid, d_sid,  focus_space ? space_manager_prev_space(sid) : 0, focus_space ? 1 : 0)) {
         space_manager_mark_view_invalid(sm, sid);
-        space_manager_focus_space(sid);
+        if (focus_space) {
+            space_manager_focus_space(sid);
+        }
         return SPACE_OP_ERROR_SUCCESS;
     }
 
     return SPACE_OP_ERROR_SCRIPTING_ADDITION;
 }
 
+enum space_op_error space_manager_focus_space(uint64_t sid)
+{
+    bool is_in_mc = mission_control_is_active();
+    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
+
+    uint64_t cur_sid = space_manager_active_space();
+    if (cur_sid == sid) return SPACE_OP_ERROR_SAME_SPACE;
+
+    uint32_t cur_did = space_display_id(cur_sid);
+    uint32_t new_did = space_display_id(sid);
+    bool focus_display = cur_did != new_did;
+
+    bool is_animating = display_manager_display_is_animating(new_did);
+    if (is_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
+
+    if (scripting_addition_focus_space(sid)) {
+        if (focus_display) {
+            display_manager_focus_display(new_did, sid);
+        }
+    } else {
+        return SPACE_OP_ERROR_SCRIPTING_ADDITION;
+    }
+
+    return SPACE_OP_ERROR_SUCCESS;
+}
+
+enum space_op_error space_manager_switch_space(uint64_t sid)
+{
+    bool is_in_mc = mission_control_is_active();
+    if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
+
+    uint64_t cur_sid = space_manager_active_space();
+    if (cur_sid == sid) return SPACE_OP_ERROR_SAME_SPACE;
+
+    uint32_t cur_did = space_display_id(cur_sid);
+    uint32_t did     = space_display_id(sid);
+
+    bool is_src_animating = display_manager_display_is_animating(cur_did);
+    if (is_src_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
+
+    bool is_dst_animating = display_manager_display_is_animating(did);
+    if (is_dst_animating) return SPACE_OP_ERROR_DISPLAY_IS_ANIMATING;
+
+    if (cur_did != did) {
+        space_manager_swap_space_with_space_on_display(cur_did, cur_sid, did, sid);
+        display_manager_focus_display(cur_did, cur_sid);
+        return SPACE_OP_ERROR_SUCCESS;
+    }
+
+    return scripting_addition_focus_space(sid) ? SPACE_OP_ERROR_SUCCESS : SPACE_OP_ERROR_SCRIPTING_ADDITION;
+}
+
 enum space_op_error space_manager_destroy_space(uint64_t sid)
 {
-    bool is_in_mc = g_mission_control_active;
+    bool is_in_mc = mission_control_is_active();
     if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
 
     if (!sid) return SPACE_OP_ERROR_MISSING_SRC;
@@ -810,7 +1137,7 @@ enum space_op_error space_manager_destroy_space(uint64_t sid)
 
 enum space_op_error space_manager_add_space(uint64_t sid)
 {
-    bool is_in_mc = g_mission_control_active;
+    bool is_in_mc = mission_control_is_active();
     if (is_in_mc) return SPACE_OP_ERROR_IN_MISSION_CONTROL;
     if (!sid)     return SPACE_OP_ERROR_MISSING_SRC;
 
@@ -840,7 +1167,7 @@ bool space_manager_is_window_on_active_space(struct window *window)
 bool space_manager_is_window_on_space(uint64_t sid, struct window *window)
 {
     int space_count;
-    uint64_t *space_list = window_space_list(window, &space_count);
+    uint64_t *space_list = window_space_list(window->id, &space_count);
     if (!space_list) return false;
 
     for (int i = 0; i < space_count; ++i) {
@@ -956,6 +1283,15 @@ void space_manager_handle_display_add(struct space_manager *sm, uint32_t did)
 void space_manager_begin(struct space_manager *sm)
 {
     sm->layout = VIEW_FLOAT;
+
+    // this is just to avoid awkward sm->autopad.x access everywhere :/
+    sm->autopad = &sm->_autopad;
+    sm->autopad->enabled = false;
+    space_manager_set_autopad_min_aspect(sm, 20., 9);
+    sm->autopad->width_type = SPACE_AUTOPAD_VALUE_FIXED_INT;
+    sm->autopad->width = 840;
+    sm->autopad->height = 1200;
+
     sm->split_ratio = 0.5f;
     sm->auto_balance = false;
     sm->split_type = SPLIT_AUTO;

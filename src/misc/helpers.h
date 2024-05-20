@@ -1,6 +1,164 @@
 #ifndef HELPERS_H
 #define HELPERS_H
 
+#define ANIMATION_EASING_TYPE_LIST \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_sine) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_out_sine) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_sine) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_quad) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_out_quad) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_quad) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_cubic) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_out_cubic) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_cubic) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_quart) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_out_quart) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_quart) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_quint) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_out_quint) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_quint) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_expo) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_out_expo) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_expo) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_circ) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_out_circ) \
+    ANIMATION_EASING_TYPE_ENTRY(ease_in_out_circ)
+
+enum animation_easing_type
+{
+#define ANIMATION_EASING_TYPE_ENTRY(value) value##_type,
+    ANIMATION_EASING_TYPE_LIST
+#undef ANIMATION_EASING_TYPE_ENTRY
+    EASING_TYPE_COUNT
+};
+
+static char *animation_easing_type_str[] =
+{
+#define ANIMATION_EASING_TYPE_ENTRY(value) [value##_type] = #value,
+    ANIMATION_EASING_TYPE_LIST
+#undef ANIMATION_EASING_TYPE_ENTRY
+};
+
+static inline float ease_in_sine(float t)
+{
+    return 1.0f - cosf((t * M_PI) / 2.0f);
+}
+
+static inline float ease_out_sine(float t)
+{
+    return sinf((t * M_PI) / 2.0f);
+}
+
+static inline float ease_in_out_sine(float t)
+{
+    return -(cosf(M_PI * t) - 1.0f) / 2.0f;
+}
+
+static inline float ease_in_quad(float t)
+{
+    return t * t;
+}
+
+static inline float ease_out_quad(float t)
+{
+    return 1.0f - (1.0f - t) * (1.0f - t);
+}
+
+static inline float ease_in_out_quad(float t)
+{
+    return t < 0.5f ? 2.0f * t * t : 1.0f - powf(-2.0f * t + 2.0f, 2.0f) / 2.0f;
+}
+
+static inline float ease_in_cubic(float t)
+{
+    return t * t * t;
+}
+
+static inline float ease_out_cubic(float t)
+{
+    return 1.0f - powf(1.0f - t, 3);
+}
+
+static inline float ease_in_out_cubic(float t)
+{
+    return t < 0.5f ? 4.0f * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 3.0f) / 2.0f;
+}
+
+static inline float ease_in_quart(float t)
+{
+    return t * t * t * t;
+}
+
+static inline float ease_out_quart(float t)
+{
+    return 1.0f - powf(1.0f - t, 4);
+}
+
+static inline float ease_in_out_quart(float t)
+{
+    return t < 0.5f ? 8.0f * t * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 4.0f) / 2.0f;
+}
+
+static inline float ease_in_quint(float t)
+{
+    return t * t * t * t * t;
+}
+
+static inline float ease_out_quint(float t)
+{
+    return 1.0f - powf(1.0f - t, 5);
+}
+
+static inline float ease_in_out_quint(float t)
+{
+    return t < 0.5f ? 16.0f * t * t * t * t * t : 1.0f - powf(-2.0f * t + 2.0f, 5.0f) / 2.0f;
+}
+
+static inline float ease_in_expo(float t)
+{
+    return t == 0.0f ? 0.0f : powf(2.0f, 10.0f * t - 10.0f);
+}
+
+static inline float ease_out_expo(float t)
+{
+    return t == 1.0f ? 1.0f : 1.0f - powf(2.0f, -10.0f * t);
+}
+
+static inline float ease_in_out_expo(float t)
+{
+    return t == 0.0f ? 0.0f : t == 1.0f ? 1.0f : t < 0.5f ? powf(2.0f, 20.0f * t - 10.0f) / 2.0f : (2.0f - powf(2.0f, -20.0f * t + 10.0f)) / 2.0f;
+}
+
+static inline float ease_in_circ(float t)
+{
+    return 1.0f - sqrtf(1.0f - powf(t, 2.0f));
+}
+
+static inline float ease_out_circ(float t)
+{
+    return sqrtf(1.0f - powf(t - 1.0f, 2.0f));
+}
+
+static inline float ease_in_out_circ(float t)
+{
+    return t < 0.5f ? (1.0f - sqrtf(1.0f - powf(2.0f * t, 2.0f))) / 2.0f : (sqrtf(1.0f - powf(-2.0f * t + 2.0f, 2.0f)) + 1.0f) / 2.0f;
+}
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+static inline uint64_t read_os_timer(void)
+{
+    uint64_t result = mach_absolute_time();
+    Nanoseconds nano = AbsoluteToNanoseconds(*(AbsoluteTime *) &result);
+    return *(uint64_t *) &nano;
+}
+#pragma clang diagnostic pop
+
+static inline uint64_t read_os_freq(void)
+{
+    return 1000000000;
+}
+
 struct rgba_color
 {
     uint32_t p;
@@ -16,71 +174,11 @@ static const char *bool_str[] = { "off", "on" };
 
 static const char *layer_str[] =
 {
-    [0] = "",
-    [LAYER_BELOW] = "below",
+    [LAYER_AUTO]   = "auto",
+    [LAYER_BELOW]  = "below",
     [LAYER_NORMAL] = "normal",
-    [LAYER_ABOVE] = "above"
+    [LAYER_ABOVE]  = "above"
 };
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-static inline uint64_t get_wall_clock(void)
-{
-    uint64_t absolute = mach_absolute_time();
-    Nanoseconds result = AbsoluteToNanoseconds(*(AbsoluteTime *) &absolute);
-    return *(uint64_t *) &result;
-}
-#pragma clang diagnostic pop
-
-static inline float get_seconds_elapsed(uint64_t start, uint64_t end)
-{
-    float result = ((float)(end - start) / 1000.0f) / 1000000.0f;
-    return result;
-}
-
-static inline float ease_out_cubic(float t)
-{
-    return 1.0f - powf(1.0f - t, 3.0f);
-}
-
-#define ANIMATE_DELAY(current_frame_duration)                                                    \
-    while (frame_elapsed < current_frame_duration) {                                             \
-        uint32_t sleep_ms = (uint32_t)(1000.0f * (current_frame_duration - frame_elapsed));      \
-        usleep(sleep_ms * 700.0f);                                                               \
-        frame_elapsed = get_seconds_elapsed(last_counter, get_wall_clock());                     \
-    }
-
-#define ANIMATE(connection, frame_rate, duration, easing_function, code_block)                   \
-{                                                                                                \
-    float frame_duration = 1.0f / (float)frame_rate;                                             \
-    int frame_count = (int)((duration / frame_duration) + 1.0f);                                 \
-    uint64_t last_counter = get_wall_clock();                                                    \
-                                                                                                 \
-    for (int frame_index = 1; frame_index <= frame_count; ++frame_index) {                       \
-        float t = (float) frame_index / (float) frame_count;                                     \
-        if (t < 0.0f) t = 0.0f;                                                                  \
-        if (t > 1.0f) t = 1.0f;                                                                  \
-                                                                                                 \
-        float mt = easing_function(t);                                                           \
-        CFTypeRef transaction = SLSTransactionCreate(connection);                                \
-                                                                                                 \
-        code_block                                                                               \
-                                                                                                 \
-        SLSTransactionCommit(transaction, 0);                                                    \
-        CFRelease(transaction);                                                                  \
-                                                                                                 \
-        float frame_elapsed = get_seconds_elapsed(last_counter, get_wall_clock());               \
-        if (frame_elapsed < frame_duration) {                                                    \
-            ANIMATE_DELAY(frame_duration);                                                       \
-        } else {                                                                                 \
-            int frame_skip = (int)((frame_elapsed / frame_duration) + 0.5f);                     \
-            frame_index += frame_skip;                                                           \
-            ANIMATE_DELAY(frame_duration * frame_skip);                                          \
-        }                                                                                        \
-                                                                                                 \
-        last_counter = get_wall_clock();                                                         \
-    }                                                                                            \
-}
 
 static inline bool socket_open(int *sockfd)
 {
@@ -101,6 +199,27 @@ static inline void socket_close(int sockfd)
 {
     shutdown(sockfd, SHUT_RDWR);
     close(sockfd);
+}
+
+static inline void mach_send(mach_port_t port, void *data, uint32_t size)
+{
+    struct {
+        mach_msg_header_t header;
+        mach_msg_size_t descriptor_count;
+        mach_msg_ool_descriptor_t descriptor;
+    } msg = {0};
+
+    msg.header.msgh_bits        = MACH_MSGH_BITS_SET(MACH_MSG_TYPE_COPY_SEND & MACH_MSGH_BITS_REMOTE_MASK, 0, 0, MACH_MSGH_BITS_COMPLEX);
+    msg.header.msgh_size        = sizeof(msg);
+    msg.header.msgh_remote_port = port;
+    msg.descriptor_count        = 1;
+    msg.descriptor.address      = data;
+    msg.descriptor.size         = size;
+    msg.descriptor.copy         = MACH_MSG_VIRTUAL_COPY;
+    msg.descriptor.deallocate   = false;
+    msg.descriptor.type         = MACH_MSG_OOL_DESCRIPTOR;
+
+    mach_msg(&msg.header, MACH_SEND_MSG, sizeof(msg), 0, 0, 0, 0);
 }
 
 static inline char *json_optional_bool(int value)
@@ -203,6 +322,13 @@ static inline char *ts_string_escape(char *s)
     return result;
 }
 
+static inline CFStringRef CFSTRINGNUM32(int32_t num)
+{
+    char num_str[255] = {0};
+    snprintf(num_str, sizeof(num_str), "%d", num);
+    return CFStringCreateWithCString(NULL, num_str, kCFStringEncodingMacRoman);
+}
+
 static inline CFNumberRef CFNUM32(int32_t num)
 {
     return CFNumberCreate(NULL, kCFNumberSInt32Type, &num);
@@ -283,6 +409,17 @@ static inline char *string_copy(char *s)
     return result;
 }
 
+static inline bool directory_exists(char *filename)
+{
+    struct stat buffer;
+
+    if (stat(filename, &buffer) != 0) {
+        return false;
+    }
+
+    return S_ISDIR(buffer.st_mode);
+}
+
 static inline bool file_exists(char *filename)
 {
     struct stat buffer;
@@ -298,31 +435,45 @@ static inline bool file_exists(char *filename)
     return true;
 }
 
-static inline bool directory_exists(char *filename)
+static bool get_config_file(char *restrict filename, char *restrict buffer, int buffer_size)
 {
-    struct stat buffer;
-
-    if (stat(filename, &buffer) != 0) {
-        return false;
+    char *xdg_home = getenv("XDG_CONFIG_HOME");
+    if (xdg_home && *xdg_home) {
+        snprintf(buffer, buffer_size, "%s/yabai/%s", xdg_home, filename);
+        if (file_exists(buffer)) return true;
     }
 
-    return S_ISDIR(buffer.st_mode);
+    char *home = getenv("HOME");
+    if (!home) return false;
+
+    snprintf(buffer, buffer_size, "%s/.config/yabai/%s", home, filename);
+    if (file_exists(buffer)) return true;
+
+    snprintf(buffer, buffer_size, "%s/.%s", home, filename);
+    return file_exists(buffer);
 }
 
-static inline bool ensure_executable_permission(char *filename)
+static void exec_config_file(char *config_file, int config_file_size)
 {
-    struct stat buffer;
-
-    if (stat(filename, &buffer) != 0) {
-        return false;
+    if (config_file[0] == '\0' && !get_config_file("yabairc", config_file, config_file_size)) {
+        warn("yabai: could not locate config file..\n");
+        notify("configuration", "could not locate config file..");
+        return;
     }
 
-    bool is_executable = buffer.st_mode & S_IXUSR;
-    if (!is_executable && chmod(filename, S_IXUSR | buffer.st_mode) != 0) {
-        return false;
+    if (!file_exists(config_file)) {
+        warn("yabai: configuration file '%s' does not exist..\n", config_file);
+        notify("configuration", "file '%s' does not exist..", config_file);
+        return;
     }
 
-    return true;
+    int pid = fork();
+    if (pid == 0) {
+        char *exec[] = { "/usr/bin/env", "sh", config_file, NULL};
+        exit(execvp(exec[0], exec));
+    } else if (pid == -1) {
+        notify("configuration", "failed to execute file '%s'", config_file);
+    }
 }
 
 static inline bool ax_privilege(void)
@@ -422,6 +573,95 @@ static inline float clampf_range(float value, float min, float max)
     if (value < min) return min;
     if (value > max) return max;
     return value;
+}
+
+static CGImageRef cgimage_restore_alpha(CGImageRef image)
+{
+    int width     = CGImageGetWidth(image);
+    int height    = CGImageGetHeight(image);
+    int pitch     = width * 4;
+    uint8_t *data = (uint8_t *) calloc(height * pitch, 1);
+
+    CGColorSpaceRef color_space = CGColorSpaceCreateDeviceRGB();
+    CGContextRef context = CGBitmapContextCreate(data, width, height, 8, pitch, color_space, kCGBitmapByteOrder32Big | kCGImageAlphaPremultipliedLast);
+    CGColorSpaceRelease(color_space);
+    CGContextDrawImage(context, CGRectMake(0, 0, width, height), image);
+
+#ifdef __x86_64__
+    __m128      inv255 = _mm_set1_ps(1.0f / 255.0f);
+    __m128      one255 = _mm_set1_ps(255.0f);
+    __m128        zero = _mm_set1_ps(0.0f);
+    __m128i    mask_ff = _mm_set1_epi32(0xff);
+#elif __arm64__
+    float32x4_t inv255 = vdupq_n_f32(1.0f / 255.0f);
+    float32x4_t one255 = vdupq_n_f32(255.0f);
+    float32x4_t   zero = vdupq_n_f32(0.0f);
+    int32x4_t  mask_ff = vdupq_n_s32(0xff);
+#endif
+
+    uint32_t *pixel = (uint32_t *) data;
+    for (int i = 0; i < height*width; i += 4) {
+#ifdef __x86_64__
+        __m128i source = _mm_loadu_si128((__m128i *) pixel);
+        __m128 r = _mm_cvtepi32_ps(_mm_and_si128(source, mask_ff));
+        __m128 g = _mm_cvtepi32_ps(_mm_and_si128(_mm_srli_epi32(source,  8), mask_ff));
+        __m128 b = _mm_cvtepi32_ps(_mm_and_si128(_mm_srli_epi32(source, 16), mask_ff));
+        __m128 a = _mm_cvtepi32_ps(_mm_and_si128(_mm_srli_epi32(source, 24), mask_ff));
+        __m128i mask = _mm_castps_si128(_mm_cmpgt_ps(a, zero));
+
+        r = _mm_mul_ps(one255, _mm_div_ps(r, a));
+        g = _mm_mul_ps(one255, _mm_div_ps(g, a));
+        b = _mm_mul_ps(one255, _mm_div_ps(b, a));
+
+        a = one255;
+
+        r = _mm_mul_ps(inv255, _mm_mul_ps(r, a));
+        g = _mm_mul_ps(inv255, _mm_mul_ps(g, a));
+        b = _mm_mul_ps(inv255, _mm_mul_ps(b, a));
+
+        __m128i sr = _mm_cvtps_epi32(r);
+        __m128i sg = _mm_slli_epi32(_mm_cvtps_epi32(g),  8);
+        __m128i sb = _mm_slli_epi32(_mm_cvtps_epi32(b), 16);
+        __m128i sa = _mm_slli_epi32(_mm_cvtps_epi32(a), 24);
+
+        __m128i color = _mm_or_si128(_mm_or_si128(_mm_or_si128(sr, sg), sb), sa);
+        __m128i masked_color = _mm_or_si128(_mm_and_si128(mask, color), _mm_andnot_si128(mask, source));
+        _mm_storeu_si128((__m128i *) pixel, masked_color);
+#elif __arm64__
+        int32x4_t source = vld1q_s32((int32_t *) pixel);
+        float32x4_t r = vcvtq_f32_s32(vandq_s32(source, mask_ff));
+        float32x4_t g = vcvtq_f32_s32(vandq_s32(vshlq_u32(source, vdupq_n_s32(-8)),  mask_ff));
+        float32x4_t b = vcvtq_f32_s32(vandq_s32(vshlq_u32(source, vdupq_n_s32(-16)), mask_ff));
+        float32x4_t a = vcvtq_f32_s32(vandq_s32(vshlq_u32(source, vdupq_n_s32(-24)), mask_ff));
+        int32x4_t mask = vreinterpretq_s32_f32(vcgtq_f32(a, zero));
+
+        r = vmulq_f32(one255, vdivq_f32(r, a));
+        g = vmulq_f32(one255, vdivq_f32(g, a));
+        b = vmulq_f32(one255, vdivq_f32(b, a));
+
+        a = one255;
+
+        r = vmulq_f32(inv255, vmulq_f32(r, a));
+        g = vmulq_f32(inv255, vmulq_f32(g, a));
+        b = vmulq_f32(inv255, vmulq_f32(b, a));
+
+        int32x4_t sr = vcvtnq_s32_f32(r);
+        int32x4_t sg = vshlq_s32(vcvtnq_s32_f32(g), vdupq_n_s32(8));
+        int32x4_t sb = vshlq_s32(vcvtnq_s32_f32(b), vdupq_n_s32(16));
+        int32x4_t sa = vshlq_s32(vcvtnq_s32_f32(a), vdupq_n_s32(24));
+
+        int32x4_t color = vorrq_s32(vorrq_s32(vorrq_s32(sr, sg), sb), sa);
+        int32x4_t masked_color = vorrq_s32(vandq_s32(color, mask), vbicq_s32(source, mask));
+        vst1q_s32((int32_t *) pixel, masked_color);
+#endif
+        pixel += 4;
+    }
+
+    CGImageRef result = CGBitmapContextCreateImage(context);
+    CGContextRelease(context);
+
+    free(data);
+    return result;
 }
 
 #endif

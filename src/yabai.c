@@ -2,49 +2,54 @@
 #define SOCKET_PATH_FMT         "/tmp/yabai_%s.socket"
 #define LCFILE_PATH_FMT         "/tmp/yabai_%s.lock"
 
-#define CLIENT_OPT_LONG         "--message"
-#define CLIENT_OPT_SHRT         "-m"
-
-#define DEBUG_VERBOSE_OPT_LONG  "--verbose"
-#define DEBUG_VERBOSE_OPT_SHRT  "-V"
-#define VERSION_OPT_LONG        "--version"
-#define VERSION_OPT_SHRT        "-v"
-#define CONFIG_OPT_LONG         "--config"
-#define CONFIG_OPT_SHRT         "-c"
-
-#define SCRPT_ADD_UNINSTALL_OPT "--uninstall-sa"
 #define SCRPT_ADD_LOAD_OPT      "--load-sa"
-
+#define SCRPT_ADD_UNINSTALL_OPT "--uninstall-sa"
 #define SERVICE_INSTALL_OPT     "--install-service"
 #define SERVICE_UNINSTALL_OPT   "--uninstall-service"
 #define SERVICE_START_OPT       "--start-service"
 #define SERVICE_RESTART_OPT     "--restart-service"
 #define SERVICE_STOP_OPT        "--stop-service"
+#define CLIENT_OPT_LONG         "--message"
+#define CLIENT_OPT_SHRT         "-m"
+#define CONFIG_OPT_LONG         "--config"
+#define CONFIG_OPT_SHRT         "-c"
+#define DEBUG_VERBOSE_OPT_LONG  "--verbose"
+#define DEBUG_VERBOSE_OPT_SHRT  "-V"
+#define VERSION_OPT_LONG        "--version"
+#define VERSION_OPT_SHRT        "-v"
+#define HELP_OPT_LONG           "--help"
+#define HELP_OPT_SHRT           "-h"
 
-#define MAJOR  5
+#define MAJOR  7
 #define MINOR  0
-#define PATCH  6
-
-struct event_loop g_event_loop;
-void *g_workspace_context;
-struct process_manager g_process_manager;
-struct display_manager g_display_manager;
-struct space_manager g_space_manager;
-struct window_manager g_window_manager;
-struct mouse_state g_mouse_state;
-int g_normal_window_level;
-int g_floating_window_level;
-int g_connection;
-pid_t g_pid;
+#define PATCH  2
 
 struct signal *g_signal_event[SIGNAL_TYPE_COUNT];
+struct process_manager g_process_manager;
+struct display_manager g_display_manager;
+struct window_manager g_window_manager;
+struct space_manager g_space_manager;
 struct memory_pool g_signal_storage;
-int g_mission_control_active;
+struct mouse_state g_mouse_state;
+struct event_loop g_event_loop;
+void *g_workspace_context;
+
+enum mission_control_mode g_mission_control_mode;
+double g_cv_host_clock_frequency;
+int g_layer_normal_window_level;
+int g_layer_below_window_level;
+int g_layer_above_window_level;
+uint8_t *g_event_bytes;
+
 char g_sa_socket_file[MAXLEN];
 char g_socket_file[MAXLEN];
 char g_config_file[4096];
 char g_lock_file[MAXLEN];
+
+mach_port_t g_bs_port;
+int g_connection;
 bool g_verbose;
+pid_t g_pid;
 
 static int client_send_message(int argc, char **argv)
 {
@@ -118,50 +123,6 @@ static int client_send_message(int argc, char **argv)
     return result;
 }
 
-static bool get_config_file(char *restrict filename, char *restrict buffer, int buffer_size)
-{
-    char *xdg_home = getenv("XDG_CONFIG_HOME");
-    if (xdg_home && *xdg_home) {
-        snprintf(buffer, buffer_size, "%s/yabai/%s", xdg_home, filename);
-        if (file_exists(buffer)) return true;
-    }
-
-    char *home = getenv("HOME");
-    if (!home) return false;
-
-    snprintf(buffer, buffer_size, "%s/.config/yabai/%s", home, filename);
-    if (file_exists(buffer)) return true;
-
-    snprintf(buffer, buffer_size, "%s/.%s", home, filename);
-    return file_exists(buffer);
-}
-
-static void exec_config_file(void)
-{
-    if (!*g_config_file && !get_config_file("yabairc", g_config_file, sizeof(g_config_file))) {
-        notify("configuration", "could not locate config file..");
-        return;
-    }
-
-    if (!file_exists(g_config_file)) {
-        notify("configuration", "file '%s' does not exist..", g_config_file);
-        return;
-    }
-
-    if (!ensure_executable_permission(g_config_file)) {
-        notify("configuration", "could not set the executable permission bit for '%s'", g_config_file);
-        return;
-    }
-
-    int pid = fork();
-    if (pid == 0) {
-        char *exec[] = { "/usr/bin/env", "sh", "-c", g_config_file, NULL};
-        exit(execvp(exec[0], exec));
-    } else if (pid == -1) {
-        notify("configuration", "failed to execute file '%s'", g_config_file);
-    }
-}
-
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 static inline bool configure_settings_and_acquire_lock(void)
@@ -175,22 +136,28 @@ static inline bool configure_settings_and_acquire_lock(void)
     snprintf(g_socket_file, sizeof(g_socket_file), SOCKET_PATH_FMT, user);
     snprintf(g_lock_file, sizeof(g_lock_file), LCFILE_PATH_FMT, user);
 
-    g_pid = getpid();
-    g_connection = SLSMainConnectionID();
-    g_normal_window_level   = CGWindowLevelForKey(LAYER_NORMAL);
-    g_floating_window_level = CGWindowLevelForKey(LAYER_ABOVE);
-
     NSApplicationLoad();
+    g_pid = getpid();
+    g_event_bytes = malloc(0xf8);
+    g_connection = SLSMainConnectionID();
+    g_cv_host_clock_frequency   = CVGetHostClockFrequency();
+    g_layer_normal_window_level = CGWindowLevelForKey(LAYER_NORMAL);
+    g_layer_below_window_level  = CGWindowLevelForKey(LAYER_BELOW);
+    g_layer_above_window_level  = CGWindowLevelForKey(LAYER_ABOVE);
+    CGSGetConnectionPortById    = macho_find_symbol("/System/Library/PrivateFrameworks/SkyLight.framework/Versions/A/SkyLight", "_CGSGetConnectionPortById");
+
     signal(SIGCHLD, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
     CGSetLocalEventsSuppressionInterval(0.0f);
     CGEnableEventStateCombining(false);
     mouse_state_init(&g_mouse_state);
+    task_get_special_port(mach_task_self(), TASK_BOOTSTRAP_PORT, &g_bs_port);
 
 #if 0
     hook_nsobject_autorelease();
     hook_autoreleasepool_drain();
     hook_autoreleasepool_release();
+    window_dump_cg_window_levels();
 #endif
 
     int handle = open(g_lock_file, O_CREAT | O_WRONLY, 0600);
@@ -210,25 +177,29 @@ static inline bool configure_settings_and_acquire_lock(void)
 }
 #pragma clang diagnostic pop
 
-static CONNECTION_CALLBACK(connection_handler)
-{
-    if (type == 1204) {
-        event_loop_post(&g_event_loop, MISSION_CONTROL_ENTER, NULL, 0, NULL);
-    } else if (type == 806) {
-        event_loop_post(&g_event_loop, SLS_WINDOW_MOVED, (void *) (intptr_t) (*(uint32_t *) data), 0, NULL);
-    } else if (type == 807) {
-        event_loop_post(&g_event_loop, SLS_WINDOW_RESIZED, (void *) (intptr_t) (* (uint32_t *) data), 0, NULL);
-    } else if (type == 808) {
-        event_loop_post(&g_event_loop, SLS_WINDOW_ORDER_CHANGED, (void *) (intptr_t) (* (uint32_t *) data), 0, NULL);
-    } else if (type == 815) {
-        event_loop_post(&g_event_loop, SLS_WINDOW_IS_VISIBLE, (void *) (intptr_t) (* (uint32_t *) data), 0, NULL);
-    } else if (type == 816) {
-        event_loop_post(&g_event_loop, SLS_WINDOW_IS_INVISIBLE, (void *) (intptr_t) (* (uint32_t *) data), 0, NULL);
-    }
-}
-
 static void parse_arguments(int argc, char **argv)
 {
+    if ((string_equals(argv[1], HELP_OPT_LONG)) ||
+        (string_equals(argv[1], HELP_OPT_SHRT))) {
+        fprintf(stdout, "Usage: yabai [option]\n"
+                        "Options:\n"
+                        "    --load-sa              Install and load the scripting-addition.\n"
+                        "    --uninstall-sa         Uninstall the scripting-addition.\n"
+                        "    --install-service      Write launchd service file to disk.\n"
+                        "    --uninstall-service    Remove launchd service file from disk.\n"
+                        "    --start-service        Enable, load, and start the launchd service.\n"
+                        "    --restart-service      Attempts to restart the service instance.\n"
+                        "    --stop-service         Stops a running instance of the service.\n"
+                        "    --message, -m <msg>    Send message to a running instance of yabai.\n"
+                        "    --config, -c <config>  Use the specified configuration file.\n"
+                        "    --verbose, -V          Output debug information to stdout.\n"
+                        "    --version, -v          Print version to stdout and exit.\n"
+                        "    --help, -h             Print options to stdout and exit.\n"
+                        "Type `man yabai` for more information, or visit: "
+                        "https://github.com/koekeishiya/yabai/blob/v%d.%d.%d/doc/yabai.asciidoc\n", MAJOR, MINOR, PATCH);
+        exit(EXIT_SUCCESS);
+    }
+
     if ((string_equals(argv[1], VERSION_OPT_LONG)) ||
         (string_equals(argv[1], VERSION_OPT_SHRT))) {
         fprintf(stdout, "yabai-v%d.%d.%d\n", MAJOR, MINOR, PATCH);
@@ -303,11 +274,11 @@ int main(int argc, char **argv)
         require("yabai: 'display has separate spaces' is disabled! abort..\n");
     }
 
-    if (!ts_init(MEGABYTES(4))) {
+    if (!ts_init(MEGABYTES(8))) {
         error("yabai: could not allocate temporary storage! abort..\n");
     }
 
-    if (!memory_pool_init(&g_signal_storage, KILOBYTES(128))) {
+    if (!memory_pool_init(&g_signal_storage, KILOBYTES(256))) {
         error("yabai: could not allocate event signal storage! abort..\n");
     }
 
@@ -335,17 +306,18 @@ int main(int argc, char **argv)
         error("yabai: could not start mouse handler! abort..\n");
     }
 
-    if (workspace_is_macos_monterey() || workspace_is_macos_ventura()) {
+    if (workspace_is_macos_monterey() || workspace_is_macos_ventura() || workspace_is_macos_sonoma()) {
         mission_control_observe();
+
+        if (workspace_is_macos_ventura() || workspace_is_macos_sonoma()) {
+            SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1327, NULL);
+            SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1328, NULL);
+        }
     } else {
         SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 1204, NULL);
     }
 
-    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 806, NULL);
-    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 807, NULL);
     SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 808, NULL);
-    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 815, NULL);
-    SLSRegisterConnectionNotifyProc(g_connection, connection_handler, 816, NULL);
 
     window_manager_init(&g_window_manager);
     space_manager_begin(&g_space_manager);
@@ -355,7 +327,7 @@ int main(int argc, char **argv)
         error("yabai: could not start message loop! abort..\n");
     }
 
-    exec_config_file();
+    exec_config_file(g_config_file, sizeof(g_config_file));
 
     for (;;) {
         NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
@@ -367,3 +339,5 @@ int main(int argc, char **argv)
 
     return 0;
 }
+
+PROFILER_END_TRANSLATION_UNIT;
